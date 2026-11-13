@@ -22,18 +22,18 @@ Clips go to `~/Videos/StreamClips/<stream date>/` (a second stream that day goes
 ### 1. Install
 
 ```bash
-git clone https://github.com/<you>/stream-clipper.git
+git clone https://github.com/LucasPierru/stream-clipper.git
 cd stream-clipper
 python -m venv .venv
 ```
 
 Install into the venv: `pip install -e .` for the clipper only, or `pip install -e ".[captions]"` to also get `--captions` (faster-whisper, a large download):
 
-| Shell | Command |
-|---|---|
+| Shell            | Command                                                |
+| ---------------- | ------------------------------------------------------ |
 | cmd / PowerShell | `.venv\Scripts\python -m pip install -e ".[captions]"` |
-| Git Bash | `.venv/Scripts/python -m pip install -e ".[captions]"` |
-| macOS / Linux | `.venv/bin/python -m pip install -e ".[captions]"` |
+| Git Bash         | `.venv/Scripts/python -m pip install -e ".[captions]"` |
+| macOS / Linux    | `.venv/bin/python -m pip install -e ".[captions]"`     |
 
 The OBS script finds `.venv` by itself.
 
@@ -95,15 +95,15 @@ After `pip install -e .`, `stream-clipper` works as a command too.
 
 ## Tuning
 
-| Problem | Fix |
-|---|---|
-| Too many weak clips | `--threshold 4` or `--max-clips 5` |
-| Missing moments | `--threshold 2` |
-| Clips cut off the build-up | `--peak-position 0.8` |
-| Clips cut off the reaction | `--peak-position 0.5` |
-| You want different clip lengths | `--clip-length 45` |
-| You prefer a full-height crop over the blurred background | `--crop center` |
-| You want 16:9 clips | `--format horizontal` |
+| Problem                                                   | Fix                                |
+| --------------------------------------------------------- | ---------------------------------- |
+| Too many weak clips                                       | `--threshold 4` or `--max-clips 5` |
+| Missing moments                                           | `--threshold 2`                    |
+| Clips cut off the build-up                                | `--peak-position 0.8`              |
+| Clips cut off the reaction                                | `--peak-position 0.5`              |
+| You want different clip lengths                           | `--clip-length 45`                 |
+| You prefer a full-height crop over the blurred background | `--crop center`                    |
+| You want 16:9 clips                                       | `--format horizontal`              |
 
 Downloaded VODs and the audio analysis are cached in `~/.cache/stream_clipper`, so re-running to tune settings is fast. Add `--delete-vod` to free the space once the clips are made. Other folders: `CLIPPER_OUT` and `CLIPPER_CACHE` in `.env`.
 
@@ -118,17 +118,17 @@ The tests run offline: the Twitch API and OBS are faked, and the end-to-end test
 
 `stream_clipper.py` is just the launcher (`python -m clipper` works too). The code lives in `clipper/`:
 
-| Module | What it does |
-|---|---|
-| `config.py` | `.env` loading, folders, tuning defaults |
-| `source.py` | local file / VOD URL → video on disk (yt-dlp), finding a stream's VOD |
-| `detect.py` | audio + chat signals, picking the moments |
-| `twitch.py` | Twitch API, tokens, `--twitch-login`, markers |
-| `render.py` | ffmpeg cutting, vertical layout, Whisper captions |
-| `output.py` | date folders, `highlights.md` / `.json` |
-| `pipeline.py` | one stream → clips |
-| `state.py` | `processed_streams.json`, so each stream is clipped once |
-| `cli.py` | command-line options |
+| Module        | What it does                                                          |
+| ------------- | --------------------------------------------------------------------- |
+| `config.py`   | `.env` loading, folders, tuning defaults                              |
+| `source.py`   | local file / VOD URL → video on disk (yt-dlp), finding a stream's VOD |
+| `detect.py`   | audio + chat signals, picking the moments                             |
+| `twitch.py`   | Twitch API, tokens, `--twitch-login`, markers                         |
+| `render.py`   | ffmpeg cutting, vertical layout, Whisper captions                     |
+| `output.py`   | date folders, `highlights.md` / `.json`                               |
+| `pipeline.py` | one stream → clips                                                    |
+| `state.py`    | `processed_streams.json`, so each stream is clipped once              |
+| `cli.py`      | command-line options                                                  |
 
 `obs/stream_clipper_obs.py` is the OBS script. OBS runs scripts inside its own process, so it only reacts to OBS events and starts `stream_clipper.py` as a separate process; the heavy work never runs inside OBS. It uses only the Python standard library.
 
