@@ -48,7 +48,7 @@ def process(args) -> None:
     render_clips(src, highlights, out_dir, args)
     write_report(out_dir, src, highlights)
 
-    if args.delete_vod and src.downloaded:
+    if src.downloaded and not args.keep_vod:
         src.path.unlink(missing_ok=True)
         log("deleted downloaded VOD")
     log(f"done -> {out_dir}  (see highlights.md)")

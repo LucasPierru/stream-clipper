@@ -15,13 +15,13 @@ User-facing docs: `README.md` (setup, usage, tuning) and `docs/auto-clip-flow.md
 2. **Source:** normally the VOD downloaded with yt-dlp into `CACHE_DIR`; a local recording when one covers the whole stream.
    - Manual runs can take a local file, a VOD URL, or `--channel` (the latest archive). A path that doesn't exist (no `://`) is a clean "file not found" error, not a yt-dlp URL.
    - The stream date comes from `--recording-start` for OBS recordings, the yt-dlp `timestamp` (start of the stream) for downloads, and the file mtime otherwise. `--date` overrides all of them.
-   - Local recordings are never deleted (`--delete-vod` only applies to downloads).
+   - Downloaded VODs are deleted after a successful run unless `--keep-vod` (kept on `--dry-run` or failure). Local recordings are never deleted.
 3. **Detection** (one ffmpeg pass decodes the audio to 8 kHz mono PCM; loudness is measured once per second and cached in a `.npy` file):
    - **Audio score (always on):** robust z-score (median/MAD) of loudness vs a rolling 5-minute median, plus 0.5 × the jump vs the previous 5 s. Seconds quieter than `SILENCE_DB` (-50 dB) count as zero, are **left out of the baseline** (`rolling_nanmedian`) and replaced by it before the level and jump are computed. Otherwise a silent "starting soon" screen drags the baseline down and normal talking right after it becomes the top highlights (seen on a real VOD: 5 min of digital silence → all clips at 4–6 min), and sound returning after silence (muted mic, BRB, DMCA-muted parts) looks like a jump. Smoothed over 3 s.
    - **Chat score (`--chat`, off by default** since many small streams have little chat): TwitchDownloaderCLI `chatdownload`, messages per second with extra weight for hype words, shifted back by `--chat-delay` (6 s), summed over 10 s windows and z-scored. Skips itself under 50 messages.
    - **Forced clips:** `--at H:MM:SS`, and `--markers` (Twitch stream markers through Helix; needs a user token).
 4. **Picking:**
-   - Greedy by highest score above `--threshold` (3.0), up to `--max-clips` (8), with `--min-gap` (45 s) between clips.
+   - Clips are `--clip-length` 60 s. Greedy by highest score above `--threshold` (3.0), up to `--max-clips` (8), with `--min-gap` between peaks (default = the clip length, so clips never overlap each other or a marker).
    - The first `--skip-start` (60 s) and last `--skip-end` (30 s) are ignored.
    - The peak sits at 65% of the clip. Markers sit at 85%, because streamers press them after the moment happens.
    - Forced clips are always kept and don't count toward `--max-clips`.
@@ -87,7 +87,8 @@ CI: `.github/workflows/tests.yml` runs them on Ubuntu and Windows, Python 3.10 a
 
 - Tune the threshold and peak position on real VODs, using `--dry-run`.
 - Smarter gameplay crop for `fill`/`split` (follow the action instead of the middle).
-- Spread clips out more: highlights can still bunch within a few minutes (`--min-gap` is only 45 s).
+- Sharper webcam panel: the overlay is small (~455 px wide in a 1080p stream) and is upscaled ~2.4x, so it looks a bit pixelated. Using `scale=...:flags=lanczos` for the `[cam]` branch in `render.video_filter` would be slightly crisper than the default bicubic (it can't add detail that isn't there).
+- Spread clips out more: highlights can still bunch within a few minutes.
 - Use an LLM on the transcript to rank the moments and suggest titles.
 - Add a scene-change or kill-feed signal for gameplay with no voice.
 - Snap clip edges to silences, so clips don't start in the middle of a word.

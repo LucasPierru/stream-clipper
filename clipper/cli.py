@@ -52,7 +52,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     g.add_argument("--clip-length", type=float, default=C.CLIP_LENGTH, help="seconds per clip")
     g.add_argument("--peak-position", type=float, default=C.PEAK_POSITION,
                    help="where the moment sits in the clip, 0-1")
-    g.add_argument("--min-gap", type=float, default=C.MIN_GAP, help="min seconds between clips")
+    g.add_argument("--min-gap", type=float, default=C.MIN_GAP,
+                   help="min seconds between clips (default: the clip length, so clips never overlap)")
     g.add_argument("--threshold", type=float, default=C.THRESHOLD, help="min score for auto clips")
     g.add_argument("--skip-start", type=float, default=C.SKIP_START)
     g.add_argument("--skip-end", type=float, default=C.SKIP_END)
@@ -79,7 +80,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     o.add_argument("--crf", type=int, default=20, help="video quality, lower = better/bigger")
     o.add_argument("--max-height", type=int, default=1080, help="max VOD resolution to download")
     o.add_argument("--dry-run", action="store_true", help="only list highlights, cut nothing")
-    o.add_argument("--delete-vod", action="store_true", help="delete the downloaded VOD afterwards")
+    o.add_argument("--keep-vod", action="store_true",
+                   help="keep the downloaded VOD in the cache (handy to re-run while tuning)")
     return p.parse_args(argv)
 
 

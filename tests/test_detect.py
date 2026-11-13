@@ -83,7 +83,7 @@ def test_forced_clips_always_kept_and_block_nearby_auto(make_args):
     score = audio_score(db)
     picks = pick(score, {"loud moment": score}, 900.0, [(510.0, "marker: wow"), (5000.0, "outside")],
                  make_args())
-    assert [h.reasons for h in picks] == [["marker: wow"]]   # burst at 500 is within --min-gap
+    assert [h.reasons for h in picks] == [["marker: wow"]]   # burst at 500 is within the gap (= clip length)
     h = picks[0]
     assert abs(h.start - (510 - MARKER_POSITION * h.length)) < 1e-6
 
@@ -97,3 +97,12 @@ def test_clip_clamped_to_video_end(make_args):
     score = np.zeros(100)
     picks = pick(score, {}, 100.0, [(99.0, "manual")], make_args())
     assert picks[0].start + picks[0].length <= 100.0
+
+
+def test_default_gap_is_clip_length_so_clips_never_overlap(make_args):
+    db = loudness(bursts=(500, 550))                     # 50 s apart, clips are 60 s
+    score = audio_score(db)
+    picks = pick(score, {"loud moment": score}, 900.0, [], make_args())
+    assert len(picks) == 1
+    picks = pick(score, {"loud moment": score}, 900.0, [], make_args("--min-gap", "30"))
+    assert len(picks) == 2                               # explicit --min-gap still wins

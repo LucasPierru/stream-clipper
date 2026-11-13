@@ -1,7 +1,11 @@
 """Full pipeline on a generated video: detection, cutting, layout, report. Needs ffmpeg."""
+import datetime as dt
 import json
 import shutil
 import subprocess
+
+from clipper import pipeline
+from clipper.models import Source
 
 import pytest
 
@@ -58,3 +62,16 @@ def test_split_layout_with_manual_cam(vod, tmp_path):
               "--cam", "0,40,200,112"])
     (clip,) = (tmp_path / "2026-11-12").glob("01_*.mp4")
     assert dims(clip) == (1080, 1920)
+
+
+@pytest.mark.parametrize("keep", [False, True])
+def test_downloaded_vod_is_deleted_unless_keep_vod(vod, tmp_path, monkeypatch, keep):
+    downloaded = tmp_path / "v123.mp4"
+    shutil.copy(vod, downloaded)
+    monkeypatch.setattr(pipeline, "resolve_source",
+                        lambda args: Source(downloaded, dt.date(2026, 11, 12), "test", downloaded=True))
+    argv = ["https://www.twitch.tv/videos/123", "--out", str(tmp_path / "out"), "--date", "2026-11-12",
+            "--max-clips", "1", "--layout", "fill"] + (["--keep-vod"] if keep else [])
+    cli.main(argv)
+    assert downloaded.exists() == keep
+    assert list((tmp_path / "out" / "2026-11-12").glob("01_*.mp4"))

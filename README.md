@@ -116,12 +116,12 @@ After `pip install -e .`, `stream-clipper` works as a command too.
 | Missing moments                                  | `--threshold 2`                    |
 | Clips cut off the build-up                       | `--peak-position 0.8`              |
 | Clips cut off the reaction                       | `--peak-position 0.5`              |
-| You want different clip lengths                  | `--clip-length 45`                 |
+| You want shorter or longer clips (default 60 s)  | `--clip-length 30`                 |
 | The webcam isn't detected, or the box is wrong   | `--cam X,Y,W,H`                    |
 | You prefer the whole frame over a blurred copy   | `--layout blur`                    |
 | You want 16:9 clips                              | `--format horizontal`              |
 
-To try settings without cutting anything, use `--dry-run`. Downloaded VODs and the audio analysis are cached in `~/.cache/stream_clipper`, so re-running to tune settings is fast. Add `--delete-vod` to free the space once the clips are made. Other folders: `CLIPPER_OUT` and `CLIPPER_CACHE` in `.env`.
+To try settings without cutting anything, use `--dry-run`. Downloaded VODs are deleted once the clips are made; add `--keep-vod` to keep one in `~/.cache/stream_clipper` while you re-run to tune settings (the audio analysis is always cached, it's tiny). Local video files are never deleted. Other folders: `CLIPPER_OUT` and `CLIPPER_CACHE` in `.env`.
 
 ## Development
 

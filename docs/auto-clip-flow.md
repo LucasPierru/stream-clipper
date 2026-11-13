@@ -72,7 +72,7 @@ Script settings: on/off, use the local recording, path to `stream_clipper.py`, P
 ### Limits
 
 - If the script is (re)loaded **during** a stream, it misses the start time. The newest VOD is then used, which is still the right one in practice.
-- Downloaded VODs stay in `CACHE_DIR` unless `--delete-vod` is in the extra flags. Local recordings are never deleted.
+- Downloaded VODs are deleted once the clips are made (`--keep-vod` keeps them). Local recordings are never deleted.
 - With a local recording, only the first audio track is analysed. With multi-track recording, keep track 1 as the full mix.
 
 ---
@@ -93,7 +93,7 @@ Script settings: on/off, use the local recording, path to `stream_clipper.py`, P
 |---|---|
 | `~/.cache/stream_clipper/obs.log` | Output of every OBS-triggered run, with a `=====` header per run |
 | `CACHE_DIR/processed_streams.json` | Stream ids already clipped. Delete an id to allow it again. |
-| `CACHE_DIR/<vod_id>.mp4` | Downloaded VOD (`--delete-vod` removes it) |
+| `CACHE_DIR/<vod_id>.mp4` | Downloaded VOD, deleted after clipping unless `--keep-vod` (also kept if the run fails or is a `--dry-run`) |
 | `CACHE_DIR/<key>_loudness.npy` | Cached audio analysis, so re-runs while tuning are fast |
 
 `CACHE_DIR` defaults to `~/.cache/stream_clipper` (`CLIPPER_CACHE` in `.env`).

@@ -60,11 +60,11 @@ PROCESSED_FILE = CACHE_DIR / "processed_streams.json"
 # ----------------------------------------------------------------------------
 # Tuning defaults - edit these, or override with command-line flags
 # ----------------------------------------------------------------------------
-CLIP_LENGTH = 30        # seconds per clip
+CLIP_LENGTH = 60        # seconds per clip
 PEAK_POSITION = 0.65    # where the loud moment sits inside the clip (0.65 = build-up before it)
 MARKER_POSITION = 0.85  # markers are pressed *after* the moment, so it sits near the end
 MAX_CLIPS = 8           # auto-detected clips per stream (markers/--at are always kept)
-MIN_GAP = 45            # seconds between two auto-detected clips
+MIN_GAP = None          # seconds between two auto clips; None = the clip length (no overlap)
 THRESHOLD = 3.0         # minimum highlight score; lower = more (weaker) clips
 SKIP_START = 60         # ignore the "starting soon" part
 SKIP_END = 30

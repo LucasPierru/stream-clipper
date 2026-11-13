@@ -136,8 +136,10 @@ def chat_score(src: Source, n: int, args) -> np.ndarray | None:
 def pick(total: np.ndarray, parts: dict[str, np.ndarray], duration: float,
          forced: list[tuple[float, str]], args) -> list[Highlight]:
     """Forced moments (markers / --at) are always kept; then greedily take the
-    highest-scoring seconds above --threshold, at least --min-gap apart."""
+    highest-scoring seconds above --threshold, at least --min-gap apart
+    (default: the clip length, so auto clips never overlap each other or a marker)."""
     L = min(args.clip_length, duration)
+    gap = args.min_gap if args.min_gap is not None else L
     latest_start = max(0.0, duration - L)
     picks: list[Highlight] = []
 
@@ -155,7 +157,7 @@ def pick(total: np.ndarray, parts: dict[str, np.ndarray], duration: float,
             break
         if t < args.skip_start or t > duration - args.skip_end:
             continue
-        if any(abs(t - h.peak) < args.min_gap for h in picks):
+        if any(abs(t - h.peak) < gap for h in picks):
             continue
         reasons = [f"{name} (+{arr[t]:.1f})" for name, arr in parts.items() if arr[t] >= 1.0]
         start = min(max(0.0, t - args.peak_position * L), latest_start)

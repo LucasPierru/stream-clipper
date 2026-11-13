@@ -13,7 +13,7 @@ class Source:
     title: str
     url: str | None = None
     vod_id: str | None = None
-    downloaded: bool = False  # True if we downloaded it (so --delete-vod may remove it)
+    downloaded: bool = False  # True if we downloaded it (so it's deleted after clipping, unless --keep-vod)
     # Seconds into this file where the Twitch VOD starts (VOD time = file time - vod_offset).
     # 0 for downloaded VODs; set for local OBS recordings linked to their VOD.
     vod_offset: float = 0.0
