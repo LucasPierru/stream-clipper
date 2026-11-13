@@ -28,7 +28,7 @@ User-facing docs: `README.md` (setup, usage, tuning) and `docs/auto-clip-flow.md
 5. **Cutting:**
    - ffmpeg with libx264 (veryfast, CRF 20) and AAC.
    - Output 1080×1920. `--layout auto` (default): if a webcam overlay is found and on screen during the clip → `split` (webcam panel on top, 25–42% of the height, gameplay crop below); otherwise `fill` (middle of the frame cropped to 9:16). Also `split` (always), `blur` (whole 16:9 frame over a blurred copy), `--format horizontal` (16:9). `--cam X,Y,W,H` (source pixels) skips detection. `split_geometry()` trims both crops to their panel's aspect ratio (never stretches) and nudges the gameplay crop off the webcam.
-   - **Webcam detection** (`facecam.py`): 40 frames sampled across the stream at 640 px wide. YuNet (`cv2.FaceDetectorYN`, model vendored in `clipper/data/`, MIT; OpenCV 5 has no Haar cascades) finds faces; the webcam is a face at the same spot in ≥ 40% of frames and < 30% of the frame height (game characters move, full-screen cams are too big). The overlay edges are the strongest still→changing steps in the per-pixel std map around the face (the room barely changes, gameplay does), with sanity checks. Per clip, `cam_visible()` compares the cam area with its usual look (median grey difference < 30) on 3 frames; clips without it use `fill`. Verified on a real 5.8 h GTA RP VOD: exact overlay box, in ~6 s.
+   - **Webcam detection** (`facecam.py`): 40 frames sampled across the stream at 640 px wide. YuNet (`cv2.FaceDetectorYN`, model vendored in `clipper/data/`, MIT; OpenCV 5 has no Haar cascades) finds faces; the webcam is a face at the same spot in ≥ 40% of frames and < 30% of the frame height (game characters move, full-screen cams are too big). The overlay edges are the strongest still→changing steps in the per-pixel std map around the face (the room barely changes, gameplay does), with sanity checks. The 640-px box is then **refined at full resolution** (`refine_box` on 20 native-size grey frames): each edge snaps to the exact step, half-changing (blended) edge pixels count as gameplay, and 1 px (2 px at 1080p) more is shaved, so no gameplay strip shows at the panel's edges once it's scaled up ~5x. Edges on the frame border stay put. Per clip, `cam_visible()` compares the cam area with its usual look (median grey difference < 30) on 3 frames; clips without it use `fill`. Verified on a real 5.8 h GTA RP VOD: exact overlay box, in ~6 s.
    - **Optional `--captions`:** faster-whisper transcribes each clip with word timestamps, grouped 3 words per line into an `.srt`, burned in with the `subtitles` filter. ffmpeg runs with `cwd` set to the output folder so the `.srt` path needs no escaping.
 6. **Output:**
    - Clips go to `CLIPPER_OUT/<YYYY-MM-DD>/` (default `~/Videos/StreamClips`); a second stream on the same day goes to `<date>_2/`.
@@ -59,7 +59,7 @@ User-facing docs: `README.md` (setup, usage, tuning) and `docs/auto-clip-flow.md
 - `source.py`: `resolve_source`, `local_source`, `latest_archive_url`, `download`, `match_archive`, `find_stream_vod`, `link_recording`, `probe_duration`
 - `detect.py`: `rolling`, `rolling_nanmedian`, `robust_z`, `loudness_per_second`, `audio_score`, `chat_score`, `pick`
 - `twitch.py`: `app_token`, `user_token`, `helix`, `twitch_login`, `user_id`, `recent_archives`, `markers`
-- `facecam.py`: `Box`, `Facecam`, `video_size`, `grab_frames`, `detect_faces`, `face_cluster`, `cam_rect`, `find_facecam`, `cam_visible`
+- `facecam.py`: `Box`, `Facecam`, `video_size`, `grab_frames`, `detect_faces`, `face_cluster`, `cam_rect`, `refine_edge`, `refine_box`, `find_facecam`, `cam_visible`
 - `render.py`: `split_geometry`, `video_filter`, `cut`, `load_whisper`, `transcribe`, `write_srt`
 - `output.py`: `make_output_dir`, `clip_name`, `write_report`
 - `pipeline.py`: `process` (= `ended_stream_args` for `--stream-ended`, or `link_recording` for a recording; then `find_highlights` + `plan_layouts` / `render_clips` + report)
@@ -75,7 +75,7 @@ Expected failures raise `ClipperError` (no `sys.exit` inside the code). `main()`
 - `test_detect.py`: audio score and picking on synthetic loudness
 - `test_util_output.py`: time helpers, `.env`, output folders, report links with VOD offset, SRT, filters, state file
 - `test_twitch_flow.py`: VOD matching, `--stream-ended` claim/wait/dedupe, recording offset, with a fake Helix
-- `test_facecam.py`: face clustering, overlay rectangle on a synthetic stillness map, layout planning, `--cam`
+- `test_facecam.py`: face clustering, overlay rectangle on a synthetic stillness map, full-resolution edge refinement, layout planning, `--cam`
 - `test_obs_script.py`: the OBS event logic with a fake `obspython` module and clock
 - `test_end_to_end.py`: the full CLI on a generated video, including a split layout (skipped without ffmpeg)
 

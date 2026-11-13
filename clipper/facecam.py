@@ -59,21 +59,26 @@ def video_size(path: Path) -> tuple[int, int]:
     return int(w), int(h)
 
 
-def grab_frames(path: Path, times, width: int = ANALYSIS_W) -> np.ndarray:
-    """BGR frames (N, H, W, 3) at the given seconds; unreadable ones are skipped."""
+def grab_frames(path: Path, times, width: int = ANALYSIS_W, grey: bool = False) -> np.ndarray:
+    """Frames at the given seconds: BGR (N, H, W, 3), or grey (N, H, W) if `grey`.
+    Unreadable ones are skipped."""
+    ch, fmt = (1, "gray") if grey else (3, "bgr24")
     frames, size = [], None
     for t in times:
         r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", str(path),
                             "-frames:v", "1", "-vf", f"scale={width}:-2",
-                            "-f", "rawvideo", "-pix_fmt", "bgr24", "-"], capture_output=True)
+                            "-f", "rawvideo", "-pix_fmt", fmt, "-"], capture_output=True)
         if r.returncode or not r.stdout:
             continue
-        h = len(r.stdout) // (width * 3)
+        h = len(r.stdout) // (width * ch)
         if size is None:
             size = h
         if h == size:
-            frames.append(np.frombuffer(r.stdout[: h * width * 3], np.uint8).reshape(h, width, 3))
-    return np.stack(frames) if frames else np.zeros((0, 0, width, 3), np.uint8)
+            frame = np.frombuffer(r.stdout[: h * width * ch], np.uint8)
+            frames.append(frame.reshape(h, width) if grey else frame.reshape(h, width, 3))
+    if not frames:
+        return np.zeros((0, 0, width) if grey else (0, 0, width, 3), np.uint8)
+    return np.stack(frames)
 
 
 # ----------------------------------------------------------------------------
@@ -154,6 +159,69 @@ def cam_rect(still: np.ndarray, face: Box) -> Box | None:
     return box
 
 
+def refine_edge(profile: np.ndarray, guess: int, radius: int, outward: int) -> int:
+    """Exact position of a still -> changing step near `guess`, at full resolution.
+    Returns the first changing pixel (outward=+1) or the first still pixel (outward=-1)."""
+    k = 2
+    best, pos = -np.inf, guess
+    for i in range(max(k, guess - radius), min(len(profile) - k, guess + radius) + 1):
+        a, b = profile[i - k:i].mean(), profile[i:i + k].mean()
+        step = (b - a) if outward > 0 else (a - b)
+        if step > best:
+            best, pos = step, i
+    # Pixels on the edge are a blend of webcam and gameplay: anything noticeably above
+    # the webcam's stillness level counts as gameplay, so move the edge inward past them.
+    inside = profile[max(0, pos - k - 2):pos] if outward > 0 else profile[pos:pos + k + 2]
+    outside = profile[pos:pos + k + 2] if outward > 0 else profile[max(0, pos - k - 2):pos]
+    if len(inside) and len(outside):
+        lo = float(np.median(inside))
+        thr = lo + 0.25 * (float(np.median(outside)) - lo)
+        if outward > 0:
+            while pos - 1 >= 0 and profile[pos - 1] > thr:
+                pos -= 1
+        else:
+            while pos < len(profile) and profile[pos] > thr:
+                pos += 1
+    return pos
+
+
+def refine_box(grey: np.ndarray, coarse: Box, at_border: tuple[bool, bool, bool, bool],
+               scale: float) -> Box:
+    """Snap each edge of `coarse` (source pixels) to the real overlay edge, measured on
+    full-resolution grey frames, then shave `inset` pixels so the edge pixel - a blend
+    of webcam and gameplay - is never included. Edges on the frame border stay put."""
+    _, src_h, src_w = grey.shape
+    r = int(np.ceil(2 * scale)) + 3
+    inset = max(1, src_h // 540)
+    x0, y0, x1, y1 = coarse.x, coarse.y, coarse.x + coarse.w, coarse.y + coarse.h
+    ys = slice(y0 + coarse.h // 10, y1 - coarse.h // 10)   # inner span, away from corners
+    xs = slice(x0 + coarse.w // 10, x1 - coarse.w // 10)
+    left, top, right, bottom = at_border
+
+    def cols(a: int, b: int) -> np.ndarray:
+        a, b = max(0, a), min(src_w, b)
+        return np.median(grey[:, ys, a:b].std(axis=0), axis=0), a
+
+    def rows(a: int, b: int) -> np.ndarray:
+        a, b = max(0, a), min(src_h, b)
+        return np.median(grey[:, a:b, xs].std(axis=0), axis=1), a
+
+    nx0, ny0, nx1, ny1 = 0 if left else x0, 0 if top else y0, src_w if right else x1, src_h if bottom else y1
+    if not left:
+        prof, a = cols(x0 - r - 2, x0 + r + 2)
+        nx0 = a + refine_edge(prof, x0 - a, r, -1) + inset
+    if not right:
+        prof, a = cols(x1 - r - 2, x1 + r + 2)
+        nx1 = a + refine_edge(prof, x1 - a, r, +1) - inset
+    if not top:
+        prof, a = rows(y0 - r - 2, y0 + r + 2)
+        ny0 = a + refine_edge(prof, y0 - a, r, -1) + inset
+    if not bottom:
+        prof, a = rows(y1 - r - 2, y1 + r + 2)
+        ny1 = a + refine_edge(prof, y1 - a, r, +1) - inset
+    return Box(nx0, ny0, nx1 - nx0, ny1 - ny0)
+
+
 # ----------------------------------------------------------------------------
 # Entry points
 # ----------------------------------------------------------------------------
@@ -180,7 +248,14 @@ def find_facecam(path: Path, duration: float) -> Facecam | None:
     src_w, _ = video_size(path)
     scale = src_w / width
     ref = np.median(grey[:, small.y:small.y + small.h, small.x:small.x + small.w], axis=0)
-    return Facecam(small.scaled(scale), small, ref, scale)
+    # the 640-px analysis is only accurate to a few source pixels: re-measure the edges
+    # on full-resolution frames so no gameplay shows at the panel's edges
+    at_border = (small.x == 0, small.y == 0, small.x + small.w >= width, small.y + small.h >= height)
+    full = grab_frames(path, times[::2], width=src_w, grey=True).astype(np.float32)
+    box = small.scaled(scale)
+    if len(full) >= 5:
+        box = refine_box(full, box, at_border, scale)
+    return Facecam(box, small, ref, scale)
 
 
 def cam_visible(path: Path, cam: Facecam, start: float, length: float) -> bool:

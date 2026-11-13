@@ -75,3 +75,26 @@ def test_plan_layouts(monkeypatch, tmp_path):
 
 def test_model_file_is_bundled():
     assert facecam.MODEL.is_file() and facecam.MODEL.stat().st_size > 200_000
+
+
+def test_refine_box_snaps_to_exact_edges_and_shaves_the_blend():
+    """Real overlay: x 0..119, y 60..149 in a 480x270 video. The coarse box from the
+    640-px analysis is a few pixels too big; refining must land just inside the edges."""
+    rng = np.random.default_rng(0)
+    frames = rng.uniform(0, 255, (12, 270, 480)).astype(np.float32)        # gameplay
+    frames[:, 60:150, :120] = 100 + rng.normal(0, 3, (12, 90, 120))         # still room
+    frames[:, 60:150, 120] = (frames[:, 60:150, 119] + frames[:, 60:150, 121]) / 2  # blended edge
+    coarse = Box(0, 57, 124, 96)                                             # 3-4 px too big
+    box = facecam.refine_box(frames, coarse, (True, False, False, False), scale=0.75)
+    assert box.x == 0                                  # on the frame border: untouched
+    assert box.y == 61                                 # first still row 60, + 1 px inset
+    assert box.x + box.w == 119                        # first changing column 120, - 1 px inset
+    assert box.y + box.h == 149
+    # every pixel inside the result is room, none is gameplay or blend
+    assert frames[:, box.y:box.y + box.h, box.x:box.x + box.w].std(axis=0).max() < 20
+
+
+def test_refine_edge_direction():
+    profile = np.array([60.0] * 10 + [15.0] * 10)      # changing, then still
+    assert facecam.refine_edge(profile, 12, 5, -1) == 10   # first still pixel
+    assert facecam.refine_edge(profile[::-1].copy(), 8, 5, +1) == 10   # first changing pixel
