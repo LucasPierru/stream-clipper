@@ -123,6 +123,28 @@ After `pip install -e .`, `stream-clipper` works as a command too.
 
 To try settings without cutting anything, use `--dry-run`. Downloaded VODs are deleted once the clips are made; add `--keep-vod` to keep one in `~/.cache/stream_clipper` while you re-run to tune settings (the audio analysis is always cached, it's tiny). Local video files are never deleted. Other folders: `CLIPPER_OUT` and `CLIPPER_CACHE` in `.env`.
 
+### Default settings (`clipper/config.py`)
+
+The defaults live as constants in the "Tuning defaults" part of `clipper/config.py`. A flag overrides its constant for one run (in the OBS script, put flags in "Extra flags"). Editing the constant changes the default for every run, OBS runs included. Settings without a flag can only be changed there.
+
+| Constant          | Default | Flag              | What it does |
+| ----------------- | ------- | ----------------- | ------------ |
+| `CLIP_LENGTH`     | `60`    | `--clip-length`   | Length of each clip, in seconds. |
+| `PEAK_POSITION`   | `0.65`  | `--peak-position` | Where a detected moment sits in its clip, from 0 (start) to 1 (end). With 0.65 and 60 s clips, the clip starts 39 s before the moment and ends 21 s after it. |
+| `MARKER_POSITION` | `0.85`  | none              | The same, for stream markers (`--markers`) and `--at` times. It's later in the clip because you press a marker just *after* the moment: with 60 s clips, the clip starts 51 s before the marker and ends 9 s after it. |
+| `MAX_CLIPS`       | `8`     | `--max-clips`     | Most clips found automatically per stream. Marker and `--at` clips are always added on top. |
+| `MIN_GAP`         | `None`  | `--min-gap`       | Minimum seconds between two moments. `None` means the clip length, so clips never overlap. |
+| `THRESHOLD`       | `3.0`   | `--threshold`     | How strong a moment must be to become a clip. Lower gives more (weaker) clips, higher gives fewer. |
+| `SKIP_START`      | `60`    | `--skip-start`    | Seconds ignored at the start of the stream (the "starting soon" screen). |
+| `SKIP_END`        | `30`    | `--skip-end`      | Seconds ignored at the end (the outro). |
+| `SILENCE_DB`      | `-50`   | none              | Seconds quieter than this (in dB) count as silence: they're never highlights and don't drag the "normal loudness" baseline down. |
+| `HYPE_WORDS`      | `lul`, `pog`, ... | none    | Chat words that count extra with `--chat`. |
+| `CAPTION_STYLE`   | white bold Arial | none     | Look of the burned-in `--captions` (font, size, outline, position). |
+| `AUDIO_SR`        | `8000`  | none              | Sample rate for the loudness analysis. There's no need to change it. |
+| `VIDEO_EXTS`      | `.mp4`, `.mkv`, ... | none  | File types recognised as video files. |
+
+If you edit `clipper/config.py`, a later `git pull` may conflict with your edit. Flags in the OBS "Extra flags" box avoid that.
+
 ## Development
 
 ```bash
