@@ -1,0 +1,10 @@
+# secrets and local environment
+.env
+.venv/
+
+# Python
+__pycache__/
+*.egg-info/
+build/
+dist/
+.pytest_cache/

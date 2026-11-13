@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stream-clipper"
+version = "0.1.0"
+description = "Turn a finished Twitch stream into vertical (9:16) highlight clips, triggered by OBS when you stop streaming."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.22",
+    "yt-dlp",
+]
+keywords = ["twitch", "obs", "clips", "highlights", "youtube-shorts", "ffmpeg"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Video",
+]
+
+[project.optional-dependencies]
+captions = ["faster-whisper"]   # only for --captions (large download)
+dev = ["pytest>=7"]
+
+[project.scripts]
+stream-clipper = "clipper.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["clipper*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
