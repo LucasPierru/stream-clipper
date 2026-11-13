@@ -45,6 +45,16 @@ def test_silence_and_its_end_never_score():
     assert score[330:340].max() < 2.0   # sound coming back is not a "sudden loud moment"
 
 
+def test_silent_intro_does_not_front_load(make_args):
+    """A silent "starting soon" screen must not make normal talking after it a highlight
+    (regression: real VOD with 5 min of digital silence -> all clips at 4-6 min)."""
+    db = loudness(seconds=3600, bursts=(1800, 2700))
+    db[:300] = -120
+    score = audio_score(db)
+    picks = pick(score, {"loud moment": score}, 3600.0, [], make_args())
+    assert sorted(round(h.peak / 10) * 10 for h in picks) == [1800, 2700]
+
+
 def test_pick_finds_bursts_with_peak_position(make_args):
     args = make_args()
     db = loudness(bursts=(200, 500, 750))

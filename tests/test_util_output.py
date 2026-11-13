@@ -8,7 +8,8 @@ import pytest
 from clipper import config
 from clipper.models import Highlight, Source
 from clipper.output import clip_name, make_output_dir, write_report
-from clipper.render import srt_time, video_filter, write_srt
+from clipper.facecam import Box
+from clipper.render import split_geometry, srt_time, video_filter, write_srt
 from clipper.state import ProcessedStreams
 from clipper.util import hms, parse_ts, twitch_t
 
@@ -85,10 +86,31 @@ def test_srt_grouping(tmp_path):
 
 
 def test_video_filter_variants():
-    assert "gblur" in video_filter("vertical", "blur", None)
-    assert "crop=ih*9/16" in video_filter("vertical", "center", None)
-    assert video_filter("horizontal", "blur", "01.srt").endswith("subtitles=01.srt:force_style='"
-                                                                 + config.CAPTION_STYLE + "'[v]")
+    assert "gblur" in video_filter("blur")
+    assert "crop='min(iw,ih*9/16)':ih" in video_filter("fill")
+    assert video_filter("split") == video_filter("fill")       # split without a cam -> fill
+    graph = video_filter("split", 1920, 1080, Box(0, 160, 480, 270))
+    assert "vstack" in graph and "crop=480:268:0:160" in graph   # trimmed to the even panel height
+    assert video_filter("horizontal", srt="01.srt").endswith(
+        "subtitles=01.srt:force_style='" + config.CAPTION_STYLE + "'[v]")
+
+
+@pytest.mark.parametrize("src,cam", [((1920, 1080), Box(0, 160, 480, 270)),
+                                     ((852, 480), Box(0, 73, 204, 149)),
+                                     ((1920, 1080), Box(1500, 700, 420, 380)),
+                                     ((1280, 720), Box(40, 40, 600, 200))])
+def test_split_geometry_fits_and_keeps_aspect(src, cam):
+    src_w, src_h = src
+    c, top_h, g, bot_h = split_geometry(src_w, src_h, cam)
+    assert top_h + bot_h == 1920 and top_h % 2 == 0
+    assert 0.25 * 1920 <= top_h <= 0.42 * 1920
+    for box in (c, g):                                       # crops stay inside the video
+        assert box.x >= 0 and box.y >= 0 and box.x + box.w <= src_w and box.y + box.h <= src_h
+    assert cam.x <= c.x and c.x + c.w <= cam.x + cam.w + 1   # webcam crop stays in the overlay
+    assert abs(c.w / c.h - 1080 / top_h) < 0.03              # no stretching
+    assert abs(g.w / g.h - 1080 / bot_h) < 0.03
+    if cam.x + cam.w <= src_w - g.w:                          # room to dodge: gameplay avoids the cam
+        assert g.x >= cam.x + cam.w or g.x + g.w <= cam.x
 
 
 def test_processed_streams_shared_between_instances(tmp_path):

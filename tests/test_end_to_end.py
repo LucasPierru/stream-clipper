@@ -51,3 +51,10 @@ def test_horizontal_and_dry_run(vod, tmp_path):
               "--max-clips", "1"])
     (clip,) = (tmp_path / "2026-11-12").glob("01_*.mp4")
     assert dims(clip) == (640, 360)
+
+
+def test_split_layout_with_manual_cam(vod, tmp_path):
+    cli.main([str(vod), "--out", str(tmp_path), "--date", "2026-11-12", "--max-clips", "1",
+              "--cam", "0,40,200,112"])
+    (clip,) = (tmp_path / "2026-11-12").glob("01_*.mp4")
+    assert dims(clip) == (1080, 1920)

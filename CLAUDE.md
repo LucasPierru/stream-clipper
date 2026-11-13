@@ -17,7 +17,7 @@ User-facing docs: `README.md` (setup, usage, tuning) and `docs/auto-clip-flow.md
    - The stream date comes from `--recording-start` for OBS recordings, the yt-dlp `timestamp` (start of the stream) for downloads, and the file mtime otherwise. `--date` overrides all of them.
    - Local recordings are never deleted (`--delete-vod` only applies to downloads).
 3. **Detection** (one ffmpeg pass decodes the audio to 8 kHz mono PCM; loudness is measured once per second and cached in a `.npy` file):
-   - **Audio score (always on):** robust z-score (median/MAD) of loudness vs a rolling 5-minute median, plus 0.5 × the jump vs the previous 5 s. Seconds quieter than `SILENCE_DB` (-50 dB) count as zero, and are replaced by the baseline before the jump is computed, so sound returning after silence (muted mic, BRB, DMCA-muted VOD parts) isn't a false highlight. Smoothed over 3 s.
+   - **Audio score (always on):** robust z-score (median/MAD) of loudness vs a rolling 5-minute median, plus 0.5 × the jump vs the previous 5 s. Seconds quieter than `SILENCE_DB` (-50 dB) count as zero, are **left out of the baseline** (`rolling_nanmedian`) and replaced by it before the level and jump are computed. Otherwise a silent "starting soon" screen drags the baseline down and normal talking right after it becomes the top highlights (seen on a real VOD: 5 min of digital silence → all clips at 4–6 min), and sound returning after silence (muted mic, BRB, DMCA-muted parts) looks like a jump. Smoothed over 3 s.
    - **Chat score (`--chat`, off by default** since many small streams have little chat): TwitchDownloaderCLI `chatdownload`, messages per second with extra weight for hype words, shifted back by `--chat-delay` (6 s), summed over 10 s windows and z-scored. Skips itself under 50 messages.
    - **Forced clips:** `--at H:MM:SS`, and `--markers` (Twitch stream markers through Helix; needs a user token).
 4. **Picking:**
@@ -27,7 +27,8 @@ User-facing docs: `README.md` (setup, usage, tuning) and `docs/auto-clip-flow.md
    - Forced clips are always kept and don't count toward `--max-clips`.
 5. **Cutting:**
    - ffmpeg with libx264 (veryfast, CRF 20) and AAC.
-   - Default layout 1080×1920: the full 16:9 frame centred over a blurred, upscaled copy of itself. `--crop center` crops the middle instead; `--format horizontal` keeps 16:9.
+   - Output 1080×1920. `--layout auto` (default): if a webcam overlay is found and on screen during the clip → `split` (webcam panel on top, 25–42% of the height, gameplay crop below); otherwise `fill` (middle of the frame cropped to 9:16). Also `split` (always), `blur` (whole 16:9 frame over a blurred copy), `--format horizontal` (16:9). `--cam X,Y,W,H` (source pixels) skips detection. `split_geometry()` trims both crops to their panel's aspect ratio (never stretches) and nudges the gameplay crop off the webcam.
+   - **Webcam detection** (`facecam.py`): 40 frames sampled across the stream at 640 px wide. YuNet (`cv2.FaceDetectorYN`, model vendored in `clipper/data/`, MIT; OpenCV 5 has no Haar cascades) finds faces; the webcam is a face at the same spot in ≥ 40% of frames and < 30% of the frame height (game characters move, full-screen cams are too big). The overlay edges are the strongest still→changing steps in the per-pixel std map around the face (the room barely changes, gameplay does), with sanity checks. Per clip, `cam_visible()` compares the cam area with its usual look (median grey difference < 30) on 3 frames; clips without it use `fill`. Verified on a real 5.8 h GTA RP VOD: exact overlay box, in ~6 s.
    - **Optional `--captions`:** faster-whisper transcribes each clip with word timestamps, grouped 3 words per line into an `.srt`, burned in with the `subtitles` filter. ffmpeg runs with `cwd` set to the output folder so the `.srt` path needs no escaping.
 6. **Output:**
    - Clips go to `CLIPPER_OUT/<YYYY-MM-DD>/` (default `~/Videos/StreamClips`); a second stream on the same day goes to `<date>_2/`.
@@ -50,19 +51,20 @@ User-facing docs: `README.md` (setup, usage, tuning) and `docs/auto-clip-flow.md
 
 ## Code layout
 
-`stream_clipper.py` is only a launcher; the code is in the `clipper/` package (also `python -m clipper`, or the `stream-clipper` command after `pip install -e .`). Dependencies are declared in `pyproject.toml` only: numpy and yt-dlp, plus the `captions` extra (faster-whisper) and the `dev` extra (pytest). Twitch calls use urllib: no requests or dotenv.
+`stream_clipper.py` is only a launcher; the code is in the `clipper/` package (also `python -m clipper`, or the `stream-clipper` command after `pip install -e .`). Dependencies are declared in `pyproject.toml` only: numpy, yt-dlp and opencv-python-headless, plus the `captions` extra (faster-whisper) and the `dev` extra (pytest). Twitch calls use urllib: no requests or dotenv.
 
 - `config.py`: `load_env`/`save_env`/`env`, folders (`CACHE_DIR`, `DEFAULT_OUT`, `PROCESSED_FILE`) and all tuning constants
 - `util.py`: `ClipperError`, `log`, `hms`, `twitch_t`, `parse_ts`, `run`
 - `models.py`: `Source` (`.key` for caches / `.source` tag, `vod_offset`, `to_vod_time`/`from_vod_time`) and `Highlight`
 - `source.py`: `resolve_source`, `local_source`, `latest_archive_url`, `download`, `match_archive`, `find_stream_vod`, `link_recording`, `probe_duration`
-- `detect.py`: `rolling`, `robust_z`, `loudness_per_second`, `audio_score`, `chat_score`, `pick`
+- `detect.py`: `rolling`, `rolling_nanmedian`, `robust_z`, `loudness_per_second`, `audio_score`, `chat_score`, `pick`
 - `twitch.py`: `app_token`, `user_token`, `helix`, `twitch_login`, `user_id`, `recent_archives`, `markers`
-- `render.py`: `video_filter`, `cut`, `load_whisper`, `transcribe`, `write_srt`
+- `facecam.py`: `Box`, `Facecam`, `video_size`, `grab_frames`, `detect_faces`, `face_cluster`, `cam_rect`, `find_facecam`, `cam_visible`
+- `render.py`: `split_geometry`, `video_filter`, `cut`, `load_whisper`, `transcribe`, `write_srt`
 - `output.py`: `make_output_dir`, `clip_name`, `write_report`
-- `pipeline.py`: `process` (= `ended_stream_args` for `--stream-ended`, or `link_recording` for a recording; then `find_highlights` + `render_clips` + report)
+- `pipeline.py`: `process` (= `ended_stream_args` for `--stream-ended`, or `link_recording` for a recording; then `find_highlights` + `plan_layouts` / `render_clips` + report)
 - `state.py`: `ProcessedStreams`
-- `cli.py`: `parse_args`, `main`
+- `cli.py`: `parse_args`, `parse_box`, `main`
 
 Expected failures raise `ClipperError` (no `sys.exit` inside the code). `main()` prints `error: ...` and exits 1; for OBS runs that line lands in `obs.log`, so keep messages one-line and actionable.
 
@@ -73,8 +75,9 @@ Expected failures raise `ClipperError` (no `sys.exit` inside the code). `main()`
 - `test_detect.py`: audio score and picking on synthetic loudness
 - `test_util_output.py`: time helpers, `.env`, output folders, report links with VOD offset, SRT, filters, state file
 - `test_twitch_flow.py`: VOD matching, `--stream-ended` claim/wait/dedupe, recording offset, with a fake Helix
+- `test_facecam.py`: face clustering, overlay rectangle on a synthetic stillness map, layout planning, `--cam`
 - `test_obs_script.py`: the OBS event logic with a fake `obspython` module and clock
-- `test_end_to_end.py`: the full CLI on a generated video (skipped without ffmpeg)
+- `test_end_to_end.py`: the full CLI on a generated video, including a split layout (skipped without ffmpeg)
 
 CI: `.github/workflows/tests.yml` runs them on Ubuntu and Windows, Python 3.10 and 3.12.
 
@@ -83,7 +86,8 @@ CI: `.github/workflows/tests.yml` runs them on Ubuntu and Windows, Python 3.10 a
 ## Ideas / next steps
 
 - Tune the threshold and peak position on real VODs, using `--dry-run`.
-- A facecam-on-top / gameplay-below layout (would need the facecam's crop coordinates).
+- Smarter gameplay crop for `fill`/`split` (follow the action instead of the middle).
+- Spread clips out more: highlights can still bunch within a few minutes (`--min-gap` is only 45 s).
 - Use an LLM on the transcript to rank the moments and suggest titles.
 - Add a scene-change or kill-feed signal for gameplay with no voice.
 - Snap clip edges to silences, so clips don't start in the middle of a word.

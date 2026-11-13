@@ -3,7 +3,7 @@
 **Stop streaming in OBS, and get vertical highlight clips of your Twitch stream a few minutes later, ready to post as YouTube Shorts or TikToks.**
 
 - **Finds the moments by itself:** spots where you suddenly get louder (yelling, laughing, hype). Optionally also uses your Twitch stream markers, timestamps you choose, or chat activity.
-- **Cuts 9:16 clips:** 1080×1920, with the full gameplay frame over a blurred background. Optionally with burned-in captions (Whisper).
+- **Cuts 9:16 clips that fill the screen:** 1080×1920, with your webcam on top and the gameplay below when it finds a webcam overlay, or the gameplay filling the whole frame when it doesn't. Optionally with burned-in captions (Whisper).
 - **Runs on your own PC.** No server, no account other than your own Twitch app, and nothing is ever uploaded: you review the clips and post the ones you like.
 
 Clips go to `~/Videos/StreamClips/<stream date>/` (a second stream that day goes to `<date>_2/`). Each folder gets a `highlights.md` listing every clip, with a link to that moment in your VOD.
@@ -74,10 +74,25 @@ When you stop streaming, the OBS script starts the clipper in the background. Th
 
 ## How it picks moments
 
-- **Audio spikes (always on):** where you suddenly get louder than the last 5 minutes. It adjusts to changes in game volume, and ignores silence (muted mic, BRB screen).
+- **Audio spikes (always on):** where you suddenly get louder than the last 5 minutes. It adjusts to changes in game volume, and ignores silence (a silent "starting soon" screen, muted mic, BRB).
 - **`--markers`:** a clip at every stream marker you add while live, for example from Twitch's Stream Manager or a Stream Deck. Run `python stream_clipper.py --twitch-login` once first: it saves a Twitch token to `.env`, which then renews itself.
 - **`--at H:MM:SS`:** a clip at a time you choose (manual runs).
 - **`--chat`** (off by default): bursts of chat activity. Needs [TwitchDownloaderCLI](https://github.com/lay295/TwitchDownloader) on your PATH, and skips itself if chat has fewer than 50 messages.
+
+## Clip layout
+
+| `--layout` | What you get |
+|---|---|
+| `auto` (default) | Webcam on top, gameplay below, if a webcam overlay is found. Otherwise `fill`. |
+| `split` | Webcam on top, gameplay below, for every clip. |
+| `fill` | The gameplay cropped to fill the whole 9:16 frame (the middle of the screen). |
+| `blur` | The whole 16:9 frame in the middle, over a blurred copy of itself. |
+
+How the webcam is found: the clipper samples 40 frames across the stream and looks for a face that stays in the same place (game characters move around, so they're ignored). It then finds the edges of the overlay: your room barely changes for hours, while the gameplay around it changes all the time. The log says what it found, for example `webcam found: 460x340 at (0,160)`.
+
+- Each clip is checked: if the webcam isn't on screen during that clip (a BRB or full-screen scene), that clip uses `fill`.
+- If the detection gets it wrong, set the position yourself with `--cam X,Y,W,H`, in pixels of the original video (for 1080p: 0–1920 and 0–1080).
+- The gameplay part is a crop of the middle of the screen, moved aside if it would overlap the webcam.
 
 ## Manual runs
 
@@ -95,17 +110,18 @@ After `pip install -e .`, `stream-clipper` works as a command too.
 
 ## Tuning
 
-| Problem                                                   | Fix                                |
-| --------------------------------------------------------- | ---------------------------------- |
-| Too many weak clips                                       | `--threshold 4` or `--max-clips 5` |
-| Missing moments                                           | `--threshold 2`                    |
-| Clips cut off the build-up                                | `--peak-position 0.8`              |
-| Clips cut off the reaction                                | `--peak-position 0.5`              |
-| You want different clip lengths                           | `--clip-length 45`                 |
-| You prefer a full-height crop over the blurred background | `--crop center`                    |
-| You want 16:9 clips                                       | `--format horizontal`              |
+| Problem                                          | Fix                                |
+| ------------------------------------------------ | ---------------------------------- |
+| Too many weak clips                              | `--threshold 4` or `--max-clips 5` |
+| Missing moments                                  | `--threshold 2`                    |
+| Clips cut off the build-up                       | `--peak-position 0.8`              |
+| Clips cut off the reaction                       | `--peak-position 0.5`              |
+| You want different clip lengths                  | `--clip-length 45`                 |
+| The webcam isn't detected, or the box is wrong   | `--cam X,Y,W,H`                    |
+| You prefer the whole frame over a blurred copy   | `--layout blur`                    |
+| You want 16:9 clips                              | `--format horizontal`              |
 
-Downloaded VODs and the audio analysis are cached in `~/.cache/stream_clipper`, so re-running to tune settings is fast. Add `--delete-vod` to free the space once the clips are made. Other folders: `CLIPPER_OUT` and `CLIPPER_CACHE` in `.env`.
+To try settings without cutting anything, use `--dry-run`. Downloaded VODs and the audio analysis are cached in `~/.cache/stream_clipper`, so re-running to tune settings is fast. Add `--delete-vod` to free the space once the clips are made. Other folders: `CLIPPER_OUT` and `CLIPPER_CACHE` in `.env`.
 
 ## Development
 
@@ -124,7 +140,8 @@ The tests run offline: the Twitch API and OBS are faked, and the end-to-end test
 | `source.py`   | local file / VOD URL → video on disk (yt-dlp), finding a stream's VOD |
 | `detect.py`   | audio + chat signals, picking the moments                             |
 | `twitch.py`   | Twitch API, tokens, `--twitch-login`, markers                         |
-| `render.py`   | ffmpeg cutting, vertical layout, Whisper captions                     |
+| `facecam.py`  | webcam overlay detection (YuNet face model in `clipper/data/`)        |
+| `render.py`   | ffmpeg cutting, layouts, Whisper captions                             |
 | `output.py`   | date folders, `highlights.md` / `.json`                               |
 | `pipeline.py` | one stream → clips                                                    |
 | `state.py`    | `processed_streams.json`, so each stream is clipped once              |

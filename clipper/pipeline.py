@@ -13,7 +13,8 @@ from .config import CACHE_DIR
 from .detect import audio_score, chat_score, loudness_per_second, pick
 from .models import Highlight, Source
 from .output import clip_name, make_output_dir, write_report
-from .render import cut, load_whisper, transcribe, write_srt
+from .facecam import Box, cam_visible, find_facecam, video_size
+from .render import cut, load_whisper, transcribe, video_filter, write_srt
 from .source import find_stream_vod, link_recording, probe_duration, resolve_source
 from .state import ProcessedStreams
 from .util import hms, log, parse_ts
@@ -91,9 +92,11 @@ def find_highlights(src: Source, duration: float, args) -> list[Highlight]:
 
 
 def render_clips(src: Source, highlights: list[Highlight], out_dir: Path, args) -> None:
+    layouts = plan_layouts(src, highlights, args)
+    src_w, src_h = video_size(src.path)
     model = load_whisper(args.whisper_model) if args.captions else None
     with tempfile.TemporaryDirectory() as tmp:
-        for i, h in enumerate(highlights, 1):
+        for i, (h, (layout, cam)) in enumerate(zip(highlights, layouts), 1):
             name = clip_name(i, h)
             out = out_dir / f"{name}.mp4"
             srt = None
@@ -102,6 +105,34 @@ def render_clips(src: Source, highlights: list[Highlight], out_dir: Path, args) 
                 if words:
                     h.caption = write_srt(words, out_dir / f"{name}.srt")
                     srt = f"{name}.srt"
-            log(f"cutting {out.name}")
-            cut(src.path, h, out, args, srt)
+            log(f"cutting {out.name}  ({layout})")
+            cut(src.path, h, out, args, video_filter(layout, src_w, src_h, cam, srt))
             h.file = out.name
+
+
+def plan_layouts(src: Source, highlights: list[Highlight], args) -> list[tuple[str, Box | None]]:
+    """Layout per clip. auto = webcam on top when one is found and on screen during
+    that clip, otherwise the gameplay fills the frame."""
+    n = len(highlights)
+    if args.format == "horizontal":
+        return [("horizontal", None)] * n
+    if args.layout in ("fill", "blur"):
+        return [(args.layout, None)] * n
+    if args.cam:
+        return [("split", args.cam)] * n
+    log("looking for a webcam overlay...")
+    cam = find_facecam(src.path, probe_duration(src.path))
+    if not cam:
+        log("no webcam found - the gameplay fills the frame (--cam X,Y,W,H to set it by hand)")
+        return [("fill", None)] * n
+    log(f"webcam found: {cam.box} (source pixels)")
+    plan = []
+    for h in highlights:
+        if args.layout == "split" or cam_visible(src.path, cam, h.start, h.length):
+            plan.append(("split", cam.box))
+        else:
+            plan.append(("fill", None))
+    hidden = sum(1 for p in plan if p[0] == "fill")
+    if hidden:
+        log(f"webcam not on screen in {hidden} clip(s) - those fill the frame instead")
+    return plan

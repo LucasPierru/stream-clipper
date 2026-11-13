@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,17 @@ def rolling(x: np.ndarray, w: int, fn) -> np.ndarray:
     left = w // 2
     xp = np.pad(x, (left, w - 1 - left), mode="edge")
     return fn(sliding_window_view(xp, w), axis=-1)
+
+
+def rolling_nanmedian(x: np.ndarray, w: int, fill: float) -> np.ndarray:
+    """Centred rolling median that ignores NaN; windows with no data get `fill`."""
+    w = max(1, min(w, len(x)))
+    left = w // 2
+    xp = np.pad(x, (left, w - 1 - left), mode="edge")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN windows
+        med = np.nanmedian(sliding_window_view(xp, w), axis=-1)
+    return np.where(np.isnan(med), fill, med)
 
 
 def robust_z(x: np.ndarray, floor: float) -> np.ndarray:
@@ -68,14 +80,17 @@ def loudness_per_second(path: Path, cache: Path) -> np.ndarray:
 
 def audio_score(db: np.ndarray) -> np.ndarray:
     """High where you get suddenly louder than the last few minutes (yelling, laughing)."""
+    # Silent seconds (silent "starting soon" screen, muted mic, BRB, DMCA-muted VOD
+    # parts) are left out of the baseline and replaced by it, so they neither drag the
+    # baseline down (making normal talking right after look like a highlight) nor
+    # turn sound coming back after silence into a "sudden loud moment".
     silent = db < SILENCE_DB
-    base = rolling(db, 300, np.median)             # 5-min baseline adapts to game volume
-    level = robust_z(db - base, floor=1.0)
-    # Jump vs. the previous 5 s. Silent seconds (muted mic, BRB screen, DMCA-muted VOD
-    # parts) are replaced by the baseline first, so sound coming back after silence
-    # isn't mistaken for a sudden loud moment.
-    k = 5
+    voiced = db[~silent]
+    fill = float(np.median(voiced)) if len(voiced) else float(SILENCE_DB)
+    base = rolling_nanmedian(np.where(silent, np.nan, db), 300, fill)  # 5-min baseline
     ref = np.where(silent, base, db)
+    level = robust_z(ref - base, floor=1.0)
+    k = 5                                          # jump vs. the previous 5 s
     padded = np.concatenate([np.full(k, ref[0]), ref])
     cs = np.concatenate([[0.0], np.cumsum(padded)])
     prev_mean = (cs[k:k + len(db)] - cs[:len(db)]) / k

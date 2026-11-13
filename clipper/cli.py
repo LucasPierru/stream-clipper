@@ -7,6 +7,7 @@ import shutil
 import sys
 
 from . import config as C
+from .facecam import Box
 from .pipeline import process
 from .twitch import twitch_login
 from .util import ClipperError, log
@@ -66,8 +67,12 @@ def parse_args(argv=None) -> argparse.Namespace:
 
     o = p.add_argument_group("output")
     o.add_argument("--format", choices=["vertical", "horizontal"], default="vertical")
-    o.add_argument("--crop", choices=["blur", "center"], default="blur",
-                   help="vertical style: full frame on blurred bg, or center crop")
+    o.add_argument("--layout", choices=["auto", "split", "fill", "blur"], default="auto",
+                   help="vertical layout: auto (webcam on top if found, else fill), split "
+                        "(always webcam on top), fill (gameplay fills the frame), blur "
+                        "(whole 16:9 frame over a blurred copy)")
+    o.add_argument("--cam", type=parse_box, metavar="X,Y,W,H",
+                   help="webcam position in source-video pixels, instead of detecting it")
     o.add_argument("--captions", action="store_true", help="burn in captions (needs faster-whisper)")
     o.add_argument("--whisper-model", default="small", help="tiny/base/small/medium/large-v3")
     o.add_argument("--lang", default=None, help="caption language, e.g. en or fr (default: auto)")
@@ -76,6 +81,16 @@ def parse_args(argv=None) -> argparse.Namespace:
     o.add_argument("--dry-run", action="store_true", help="only list highlights, cut nothing")
     o.add_argument("--delete-vod", action="store_true", help="delete the downloaded VOD afterwards")
     return p.parse_args(argv)
+
+
+def parse_box(text: str) -> Box:
+    try:
+        x, y, w, h = (int(v) for v in text.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected X,Y,W,H, e.g. 0,80,480,270") from None
+    if w <= 0 or h <= 0 or x < 0 or y < 0:
+        raise argparse.ArgumentTypeError("X,Y must be >= 0 and W,H > 0")
+    return Box(x, y, w, h)
 
 
 def check_ffmpeg() -> None:
