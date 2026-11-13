@@ -27,15 +27,25 @@ cd stream-clipper
 python -m venv .venv
 ```
 
-Install into the venv: `pip install -e .` for the clipper only, or `pip install -e ".[captions]"` to also get `--captions` (faster-whisper, a large download):
+Activate the venv. Your prompt then starts with `(.venv)`:
 
-| Shell            | Command                                                |
-| ---------------- | ------------------------------------------------------ |
-| cmd / PowerShell | `.venv\Scripts\python -m pip install -e ".[captions]"` |
-| Git Bash         | `.venv/Scripts/python -m pip install -e ".[captions]"` |
-| macOS / Linux    | `.venv/bin/python -m pip install -e ".[captions]"`     |
+| Shell            | Command                          |
+| ---------------- | -------------------------------- |
+| cmd              | `.venv\Scripts\activate`         |
+| PowerShell       | `.venv\Scripts\Activate.ps1`     |
+| Git Bash         | `source .venv/Scripts/activate`  |
+| macOS / Linux    | `source .venv/bin/activate`      |
 
-The OBS script finds `.venv` by itself.
+> PowerShell may refuse to run the script ("running scripts is disabled"). Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or use cmd.
+
+Then install the clipper. Add `[captions]` to also get `--captions` (faster-whisper, a large download):
+
+```bash
+python -m pip install -e .               # clipper only
+python -m pip install -e ".[captions]"   # clipper + captions
+```
+
+Activate the venv again in every new terminal before running the clipper by hand. The OBS script doesn't need this: it finds `.venv` by itself.
 
 > If the project folder is synced by OneDrive or Dropbox, mark `.venv` as "always keep on this device" so the sync tool never swaps its files for online-only placeholders. If the venv ever breaks, delete it and repeat this step.
 
@@ -96,7 +106,7 @@ How the webcam is found: the clipper samples 40 frames across the stream and loo
 
 ## Manual runs
 
-Activate the venv first (`.venv\Scripts\activate` in cmd/PowerShell, `source .venv/Scripts/activate` in Git Bash, `source .venv/bin/activate` on macOS/Linux). In Git Bash, use forward slashes: `\` is an escape character there.
+Activate the venv first (see [Install](#1-install)). In Git Bash, use forward slashes: `\` is an escape character there.
 
 ```bash
 python stream_clipper.py                                    # latest VOD of TWITCH_CHANNEL
