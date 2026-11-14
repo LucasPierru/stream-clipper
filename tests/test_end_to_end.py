@@ -75,3 +75,17 @@ def test_downloaded_vod_is_deleted_unless_keep_vod(vod, tmp_path, monkeypatch, k
     cli.main(argv)
     assert downloaded.exists() == keep
     assert list((tmp_path / "out" / "2026-11-12").glob("01_*.mp4"))
+
+
+def test_fragmented_vod_is_rewritten_with_an_index(vod, tmp_path):
+    """Twitch VODs download as fragmented MP4, where every ffmpeg seek is slow."""
+    from clipper.source import defragment, is_fragmented_mp4
+    frag = tmp_path / "frag.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(vod), "-c", "copy",
+                    "-movflags", "frag_keyframe+empty_moov", str(frag)], check=True)
+    assert not is_fragmented_mp4(vod)
+    assert is_fragmented_mp4(frag)
+    defragment(frag)
+    assert not is_fragmented_mp4(frag)
+    assert not (tmp_path / "frag.defrag.mp4").exists()
+    assert dims(frag) == dims(vod)

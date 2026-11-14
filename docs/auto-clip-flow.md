@@ -40,7 +40,7 @@ So `obs/stream_clipper_obs.py` is only the **trigger**. It reacts to OBS events 
 3. **Find the VOD:** Helix `/videos?type=archive`. Twitch lists the archive as soon as a stream starts, so it's there immediately. The one whose `created_at` is closest to the stream start (within 10 min) is picked.
 4. **Claim it:** the stream id goes into `processed_streams.json` right away, so a second run (or pressing the test button afterwards) won't clip it again.
 5. **Wait** `--vod-delay` (120 s) for Twitch to finish the VOD.
-6. **Clip:** yt-dlp download into `CACHE_DIR`, then audio analysis, picking moments, ffmpeg cuts, and `highlights.md` / `.json`.
+6. **Clip:** yt-dlp download into `CACHE_DIR` (rewritten once with a seek index if Twitch sent a fragmented MP4, so seeks are instant), then audio analysis, picking moments, ffmpeg cuts, and `highlights.md` / `.json`.
 
 Clips usually show up **about 5–15 minutes** after the stream, mostly spent downloading.
 

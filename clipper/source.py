@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
+import struct
 from pathlib import Path
 
 from .config import CACHE_DIR, VIDEO_EXTS
@@ -80,6 +82,8 @@ def download(url: str, max_height: int) -> Source:
         if not found:
             raise ClipperError("download finished but the video file could not be found")
         path = found[0]
+    if is_fragmented_mp4(path):
+        defragment(path)
 
     if info.get("timestamp"):  # stream start time -> a stream past midnight keeps its start date
         date = dt.datetime.fromtimestamp(info["timestamp"]).date()
@@ -90,6 +94,45 @@ def download(url: str, max_height: int) -> Source:
     vod = str(info.get("id", "")).lstrip("v") or None
     return Source(path.resolve(), date, info.get("title") or path.stem,
                   vod_url(vod) or url, vod, downloaded=True)
+
+
+def is_fragmented_mp4(path: Path) -> bool:
+    """True for a fragmented MP4 (many moof/mdat chunks, no index), which Twitch VODs
+    now download as. ffmpeg has to walk every chunk header each time it opens one, so
+    a seek in a multi-hour VOD takes 10+ s instead of a fraction of a second."""
+    try:
+        with open(path, "rb") as f:
+            for _ in range(64):  # the first top-level boxes are enough to tell
+                head = f.read(8)
+                if len(head) < 8:
+                    return False
+                size, kind = struct.unpack(">I4s", head)
+                if kind == b"moof":
+                    return True
+                if kind == b"mdat":     # a plain MP4 reaches its media data before any fragment
+                    return False
+                if size == 1:
+                    size = struct.unpack(">Q", f.read(8))[0] - 8
+                elif size == 0:
+                    return False
+                f.seek(size - 8, os.SEEK_CUR)
+    except (OSError, struct.error):
+        return False
+    return False
+
+
+def defragment(path: Path) -> None:
+    """Rewrite a fragmented MP4 as a normal one with an index at the front (stream copy,
+    no re-encoding), so frame grabs and clip cuts can seek instantly."""
+    tmp = path.with_name(path.stem + ".defrag" + path.suffix)
+    log(f"rewriting {path.name} with a seek index (one-time, no re-encoding)...")
+    try:
+        run(["ffmpeg", "-v", "error", "-y", "-i", str(path), "-c", "copy",
+             "-movflags", "+faststart", str(tmp)])
+        os.replace(tmp, path)
+    except (ClipperError, OSError) as e:
+        tmp.unlink(missing_ok=True)
+        log(f"could not rewrite the VOD, continuing with the slow original ({str(e).splitlines()[0]})")
 
 
 def local_time(t: dt.datetime) -> dt.datetime:

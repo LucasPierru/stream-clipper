@@ -120,3 +120,20 @@ def test_processed_streams_shared_between_instances(tmp_path):
     assert "S1" in b                                       # re-read from disk
     path.write_text("not json")
     assert "S1" not in a                                   # corrupt file = empty, not a crash
+
+
+def test_is_fragmented_mp4(tmp_path):
+    import struct
+    from clipper.source import is_fragmented_mp4
+
+    def boxes(*kinds):
+        return b"".join(struct.pack(">I4s", 16, k) + b"\0" * 8 for k in kinds)
+
+    plain, frag, back = tmp_path / "plain.mp4", tmp_path / "frag.mp4", tmp_path / "back.mp4"
+    plain.write_bytes(boxes(b"ftyp", b"moov", b"mdat"))
+    frag.write_bytes(boxes(b"ftyp", b"moov", b"moof", b"mdat"))
+    back.write_bytes(boxes(b"ftyp", b"mdat", b"moov"))   # index at the end: still seekable
+    assert not is_fragmented_mp4(plain)
+    assert is_fragmented_mp4(frag)
+    assert not is_fragmented_mp4(back)
+    assert not is_fragmented_mp4(tmp_path / "missing.mp4")
