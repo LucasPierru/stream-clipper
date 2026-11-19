@@ -98,3 +98,93 @@ def test_refine_edge_direction():
     profile = np.array([60.0] * 10 + [15.0] * 10)      # changing, then still
     assert facecam.refine_edge(profile, 12, 5, -1) == 10   # first still pixel
     assert facecam.refine_edge(profile[::-1].copy(), 8, 5, +1) == 10   # first changing pixel
+
+
+# ----------------------------------------------------------------------------
+# A chat panel attached to the webcam (translucent black box under or next to it)
+# ----------------------------------------------------------------------------
+def _blur(a, k):
+    c = np.cumsum(np.cumsum(np.pad(a, k, mode="edge"), 0), 1)
+    return (c[2 * k:, 2 * k:] - c[:-2 * k, 2 * k:] - c[2 * k:, :-2 * k] + c[:-2 * k, :-2 * k])[
+        :a.shape[0], :a.shape[1]] / (4 * k * k)
+
+
+CAM = (0, 55, 153, 112)     # x, y, w, h of the real webcam, analysis pixels
+FACE = Box(70, 85, 26, 35)
+
+
+def stream_frames(chat="below", opacity=0.65, text=True, desk=False, drift=0.0, seed=0, n=40):
+    """Grey analysis frames: changing gameplay, a still room with a moving person, and
+    optionally a translucent chat panel (dimmed gameplay + text lines) next to the cam."""
+    rng = np.random.default_rng(seed)
+    H, W = 360, 640
+    x, y, w, h = CAM
+    room = _blur(rng.uniform(40, 200, (H, W)), 4)[y:y + h, x:x + w]
+    if desk:
+        room[95:] = 60                                       # straight desk edge inside the cam
+    yy, xx = np.mgrid[y:y + h, x:x + w]
+    out = []
+    for t in range(n):
+        f = np.clip((_blur(rng.uniform(0, 255, (H, W)), 3) - 128) * 4 + rng.uniform(40, 200), 0, 255)
+        cam = room * (1 + drift * (t / n - 0.5)) + rng.normal(0, 2, room.shape)
+        dy, dx = rng.integers(-3, 4, 2)
+        person = ((xx - 83 - dx) / 30) ** 2 + ((yy - 140 - dy) / 45) ** 2 < 1
+        person |= ((xx - 83 - dx) / 14) ** 2 + ((yy - 102 - dy) / 18) ** 2 < 1
+        cam[person] = 170 + rng.normal(0, 4, person.sum())
+        f[y:y + h, x:x + w] = cam
+        if chat:
+            px0, py0, px1, py1 = (x, y + h, x + w, y + h + 140) if chat == "below" else (x + w, y, x + w + 120, y + h)
+            panel = f[py0:py1, px0:px1] * (1 - opacity)
+            for _ in range(rng.integers(0, 6) if text else 0):
+                ty, tx = rng.integers(0, py1 - py0 - 6), rng.integers(0, 20)
+                panel[ty:ty + 5, tx:tx + rng.integers(30, px1 - px0 - tx)] = 230
+            f[py0:py1, px0:px1] = panel
+        out.append(f)
+    return np.array(out, np.float32)
+
+
+def detect(frames):
+    still = frames.std(axis=0)
+    box = cam_rect(still, FACE)
+    assert box is not None
+    return box, facecam.trim_panels(np.median(frames, axis=0), still, box, FACE)
+
+
+def assert_is_cam(box):
+    x, y, w, h = CAM
+    assert max(abs(box.x - x), abs(box.y - y), abs(box.x + box.w - x - w), abs(box.y + box.h - y - h)) <= 2, box
+
+
+@pytest.mark.parametrize("kw", [
+    dict(),                                                   # chat under the cam
+    dict(chat="right"),                                       # chat next to it
+    dict(opacity=0.4),
+    dict(desk=True),                                          # cut at the panel, not the desk
+    dict(opacity=0.85, text=False, drift=0.4),                # dark quiet panel, room light drifting
+], ids=["below", "right", "light", "desk", "dark-quiet-drift"])
+def test_chat_panel_is_cut_off_the_webcam(kw):
+    raw, box = detect(stream_frames(**kw))
+    assert_is_cam(box)
+
+
+def test_chat_panel_was_taken_in_before():
+    """The bug: the panel edge is a stronger step than the cam edge, so cam_rect alone
+    returned webcam + chat."""
+    raw, _ = detect(stream_frames())
+    assert raw.h > CAM[3] + 100
+
+
+@pytest.mark.parametrize("kw", [dict(chat=None), dict(chat=None, desk=True, drift=0.4)], ids=["plain", "desk-drift"])
+def test_no_panel_nothing_is_cut(kw):
+    raw, box = detect(stream_frames(**kw))
+    assert box == raw
+    assert_is_cam(box)
+
+
+def test_refine_box_next_to_a_chat_panel():
+    rng = np.random.default_rng(0)
+    frames = rng.uniform(0, 255, (12, 270, 480)).astype(np.float32)
+    frames[:, 150:250, :120] *= 0.35                                    # translucent chat
+    frames[:, 60:150, :120] = 100 + rng.normal(0, 3, (12, 90, 120))     # still room
+    box = facecam.refine_box(frames, Box(0, 57, 124, 92), (True, False, False, False), scale=0.75)
+    assert box.y + box.h == 149                                         # last cam row, - 1 px inset

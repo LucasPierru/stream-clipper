@@ -24,6 +24,11 @@ SAMPLES = 40            # frames sampled across the stream
 MIN_SHARE = 0.4         # the face must be at the same spot in >= 40% of the frames
 MAX_FACE_H = 0.3        # a bigger face = full-screen camera, not an overlay
 STEP_K = 4              # pixels averaged on each side of a candidate edge
+PANEL_LINE = 12         # grey-level jump along a straight line where a panel meets the cam
+PANEL_RATIO = 2.0       # ...and beyond it, the 25th-percentile variation is >= 2x the room's
+PANEL_MIN_DIFF = 3.0    #    plus this much (or the same relative to brightness, plus PANEL_MIN_REL)
+PANEL_MIN_REL = 0.05
+PANEL_MIN_ROWS = 4      # a panel thinner than this (analysis pixels) is ignored
 MATCH_DIFF = 30         # per-clip check: median grey-level difference vs the usual cam image
 
 
@@ -159,6 +164,66 @@ def cam_rect(still: np.ndarray, face: Box) -> Box | None:
     return box
 
 
+def _panel_cut(mean: np.ndarray, still: np.ndarray, start: int) -> int | None:
+    """Arrays oriented so axis 0 runs from the cam side of the box (0) to the edge being
+    checked; lines are looked for from row `start` (just past the face) on. Returns the
+    first row of an attached panel, or None.
+
+    A panel starts at a straight line across the whole box in the average frame (cam
+    picture -> panel background) when the strip beyond it, up to the next such line,
+    keeps changing clearly more than the room: gameplay through a translucent
+    background, chat text. A desk edge or a shelf is a line too, but as still as the
+    room. Change is also compared relative to brightness, so a room whose light drifts
+    over hours doesn't hide a dark, nearly opaque panel."""
+    n = len(mean)
+    strength = np.zeros(n)
+    for i in range(2, n - 1):
+        strength[i] = np.median(np.abs(mean[i + 1] - mean[i - 2]))
+    lines = [i for i in range(max(start, 2), n - PANEL_MIN_ROWS)
+             if strength[i] >= PANEL_LINE and strength[i] >= strength[i - 1] and strength[i] > strength[i + 1]]
+    rel = still / (mean + 10)
+    for j, i in enumerate(lines):
+        end = lines[j + 1] - 1 if j + 1 < len(lines) else n
+        if end - (i + 2) < PANEL_MIN_ROWS:
+            continue
+        room, panel = slice(0, i - 1), slice(i + 2, end)
+        if (np.percentile(still[panel], 25) >= PANEL_RATIO * np.percentile(still[room], 25) + PANEL_MIN_DIFF
+                or np.percentile(rel[panel], 25) >= PANEL_RATIO * np.percentile(rel[room], 25) + PANEL_MIN_REL):
+            return i
+    return None
+
+
+def trim_panels(mean: np.ndarray, still: np.ndarray, box: Box, face: Box) -> Box:
+    """Cut off panels attached to the webcam overlay, e.g. a translucent chat box right
+    under it: its edges sit further out than the webcam's, so `cam_rect` takes it in."""
+    x0, y0, x1, y1 = box.x, box.y, box.x + box.w, box.y + box.h
+    pad = max(2, face.h // 4)
+
+    def area():
+        return mean[y0:y1, x0:x1], still[y0:y1, x0:x1]
+
+    m, s = area()
+    cut = _panel_cut(m, s, face.y + face.h + pad - y0)                       # below
+    if cut is not None:
+        y1 = y0 + cut
+    m, s = area()
+    cut = _panel_cut(m[::-1], s[::-1], y1 - face.y + pad)                    # above
+    if cut is not None:
+        y0 = y1 - cut
+    m, s = area()
+    cut = _panel_cut(m.T, s.T, face.x + face.w + pad - x0)                   # right
+    if cut is not None:
+        x1 = x0 + cut
+    m, s = area()
+    cut = _panel_cut(m.T[::-1], s.T[::-1], x1 - face.x + pad)                # left
+    if cut is not None:
+        x0 = x1 - cut
+    trimmed = Box(x0, y0, x1 - x0, y1 - y0)
+    if trimmed.w < 1.5 * face.w or trimmed.h < 1.5 * face.h:
+        return box
+    return trimmed
+
+
 def refine_edge(profile: np.ndarray, guess: int, radius: int, outward: int) -> int:
     """Exact position of a still -> changing step near `guess`, at full resolution.
     Returns the first changing pixel (outward=+1) or the first still pixel (outward=-1)."""
@@ -242,9 +307,14 @@ def find_facecam(path: Path, duration: float) -> Facecam | None:
     if not face:
         return None
     grey = frames.astype(np.float32).mean(axis=3)
-    small = cam_rect(grey.std(axis=0), face)
+    still = grey.std(axis=0)
+    small = cam_rect(still, face)
     if not small:
         return None
+    trimmed = trim_panels(np.median(grey, axis=0), still, small, face)
+    if trimmed != small:
+        log(f"cut a panel (chat box?) off the webcam overlay: {small} -> {trimmed} (analysis pixels)")
+    small = trimmed
     src_w, _ = video_size(path)
     scale = src_w / width
     ref = np.median(grey[:, small.y:small.y + small.h, small.x:small.x + small.w], axis=0)
