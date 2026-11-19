@@ -98,7 +98,7 @@ When you stop streaming, the OBS script starts the clipper in the background. Th
 | `fill` | The gameplay cropped to fill the whole 9:16 frame (the middle of the screen). |
 | `blur` | The whole 16:9 frame in the middle, over a blurred copy of itself. |
 
-How the webcam is found: the clipper samples 40 frames across the stream and looks for a face that stays in the same place (game characters move around, so they're ignored). It then finds the edges of the overlay: your room barely changes for hours, while the gameplay around it changes all the time. The log says what it found, for example `webcam found: 460x340 at (0,160)`.
+How the webcam is found: the clipper samples 40 frames across the stream and looks for a face that stays in the same place (game characters move around, so they're ignored). It then finds the edges of the overlay: your room barely changes for hours, while the gameplay around it changes all the time. A panel attached to the webcam, such as a translucent chat box under or next to it, is cut off: it ends at a straight line and keeps changing (gameplay showing through, chat text), unlike the edge of your desk. The log says what it found, for example `webcam found: 460x340 at (0,160)`.
 
 - Each clip is checked: if the webcam isn't on screen during that clip (a BRB or full-screen scene), that clip uses `fill`.
 - If the detection gets it wrong, set the position yourself with `--cam X,Y,W,H`, in pixels of the original video (for 1080p: 0–1920 and 0–1080).
