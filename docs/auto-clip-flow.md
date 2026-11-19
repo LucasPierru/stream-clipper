@@ -22,7 +22,7 @@ flowchart TD
     find --> claim[Write its stream id to processed_streams.json]
     claim --> wait[Wait --vod-delay 120 s<br/>for Twitch to finish the VOD]
     wait --> dl[Download the VOD with yt-dlp]
-    dl --> pipe[Detect moments, cut 9:16 clips,<br/>write highlights.md]
+    dl --> pipe[Detect moments, cut 9:16 clips<br/>(+ 16:9 with --format both),<br/>write highlights.md]
     local --> link[Find the matching VOD for links,<br/>correct for the time offset]
     link --> pipe
 ```

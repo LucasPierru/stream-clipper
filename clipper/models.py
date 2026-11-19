@@ -37,5 +37,6 @@ class Highlight:
     length: float
     score: float
     reasons: list[str] = field(default_factory=list)
-    file: str = ""        # filled in once cut
+    file: str = ""        # filled in once cut (the 9:16 clip, or the 16:9 one with --format horizontal)
+    horizontal_file: str = ""  # the 16:9 clip, with --format both
     caption: str = ""     # transcript, if --captions

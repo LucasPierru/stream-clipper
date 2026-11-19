@@ -108,10 +108,16 @@ def render_clips(src: Source, highlights: list[Highlight], out_dir: Path, args) 
             log(f"cutting {out.name}  ({layout})")
             cut(src.path, h, out, args, video_filter(layout, src_w, src_h, cam, srt))
             h.file = out.name
+            if args.format == "both":
+                wide = out_dir / f"{name}_horizontal.mp4"
+                log(f"cutting {wide.name}  (horizontal)")
+                cut(src.path, h, wide, args, video_filter("horizontal", src_w, src_h, None, srt))
+                h.horizontal_file = wide.name
 
 
 def plan_layouts(src: Source, highlights: list[Highlight], args) -> list[tuple[str, Box | None]]:
-    """Layout per clip. auto = webcam on top when one is found and on screen during
+    """Layout per clip (of the 9:16 clip with --format both; its 16:9 twin is always
+    the plain frame). auto = webcam on top when one is found and on screen during
     that clip, otherwise the gameplay fills the frame."""
     n = len(highlights)
     if args.format == "horizontal":
