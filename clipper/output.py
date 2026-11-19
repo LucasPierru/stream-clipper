@@ -46,7 +46,8 @@ def write_report(out_dir: Path, src: Source, highlights: list[Highlight]) -> Non
         if src.url and "twitch.tv/videos" in src.url:
             when = f"[{when}]({src.url}?t={twitch_t(max(0.0, src.to_vod_time(h.start)))})"
         said = h.caption[:80].replace("|", "/")
-        lines.append(f"| {i} | {h.file} | {when} | {h.score:.1f} | {', '.join(h.reasons)} | {said} |")
+        files = f"{h.file}<br>{h.horizontal_file}" if h.horizontal_file else h.file
+        lines.append(f"| {i} | {files} | {when} | {h.score:.1f} | {', '.join(h.reasons)} | {said} |")
     (out_dir / "highlights.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (out_dir / "highlights.json").write_text(json.dumps(
         {"title": src.title, "date": src.date.isoformat(), "source": src.url or str(src.path),

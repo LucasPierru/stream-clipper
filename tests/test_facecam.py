@@ -71,6 +71,8 @@ def test_plan_layouts(monkeypatch, tmp_path):
     assert plan(monkeypatch, tmp_path, ["--layout", "blur"], cam=found) == [("blur", None)] * 2
     assert plan(monkeypatch, tmp_path, ["--cam", "1,2,300,200"]) == [("split", Box(1, 2, 300, 200))] * 2
     assert plan(monkeypatch, tmp_path, ["--format", "horizontal"]) == [("horizontal", None)] * 2
+    # both: the 9:16 clips are planned as usual (the 16:9 twins are the plain frame)
+    assert plan(monkeypatch, tmp_path, ["--format", "both"], cam=found) == [("split", found.box), ("fill", None)]
 
 
 def test_model_file_is_bundled():

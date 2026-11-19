@@ -104,6 +104,10 @@ How the webcam is found: the clipper samples 40 frames across the stream and loo
 - If the detection gets it wrong, set the position yourself with `--cam X,Y,W,H`, in pixels of the original video (for 1080p: 0–1920 and 0–1080).
 - The gameplay part is a crop of the middle of the screen, moved aside if it would overlap the webcam.
 
+### Vertical, horizontal or both
+
+`--format vertical` (default) makes the 9:16 clips above. `--format horizontal` makes 16:9 clips of the whole frame instead, for example for a YouTube compilation. `--format both` makes both from the same moments: `01_1h23m45s.mp4` (9:16) and `01_1h23m45s_horizontal.mp4` (16:9), with the same captions, and `highlights.md` lists both. Cutting takes about twice as long. For OBS runs, put `--format both` in the script's "Extra flags".
+
 ## Manual runs
 
 Activate the venv first (see [Install](#1-install)). In Git Bash, use forward slashes: `\` is an escape character there.
@@ -130,6 +134,7 @@ After `pip install -e .`, `stream-clipper` works as a command too.
 | The webcam isn't detected, or the box is wrong   | `--cam X,Y,W,H`                    |
 | You prefer the whole frame over a blurred copy   | `--layout blur`                    |
 | You want 16:9 clips                              | `--format horizontal`              |
+| You want both 9:16 and 16:9 clips                | `--format both`                    |
 
 To try settings without cutting anything, use `--dry-run`. Downloaded VODs are deleted once the clips are made; add `--keep-vod` to keep one in `~/.cache/stream_clipper` while you re-run to tune settings (the audio analysis is always cached, it's tiny). Local video files are never deleted. Other folders: `CLIPPER_OUT` and `CLIPPER_CACHE` in `.env`.
 

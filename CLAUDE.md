@@ -31,10 +31,11 @@ User-facing docs: `README.md` (setup, usage, tuning) and `docs/auto-clip-flow.md
    - Output 1080×1920. `--layout auto` (default): if a webcam overlay is found and on screen during the clip → `split` (webcam panel on top, 25–42% of the height, gameplay crop below); otherwise `fill` (middle of the frame cropped to 9:16). Also `split` (always), `blur` (whole 16:9 frame over a blurred copy), `--format horizontal` (16:9). `--cam X,Y,W,H` (source pixels) skips detection. `split_geometry()` trims both crops to their panel's aspect ratio (never stretches) and nudges the gameplay crop off the webcam.
    - **Webcam detection** (`facecam.py`): 40 frames sampled across the stream at 640 px wide. YuNet (`cv2.FaceDetectorYN`, model vendored in `clipper/data/`, MIT; OpenCV 5 has no Haar cascades) finds faces; the webcam is a face at the same spot in ≥ 40% of frames and < 30% of the frame height (game characters move, full-screen cams are too big). The overlay edges are the strongest still→changing steps in the per-pixel std map around the face (the room barely changes, gameplay does), with sanity checks. `trim_panels` then cuts off a panel attached to the overlay (e.g. a translucent black chat box under or beside the cam: the cam→panel step is weaker than panel→gameplay, so `cam_rect` takes the panel in). A panel starts at a straight line across the box in the median frame where the strip beyond it, up to the next line, changes ≥ 2x more than the room (25th percentile of the std, or of std / brightness so room light drifting over hours doesn't hide a dark quiet panel); a desk edge is a line too but stays still. The 640-px box is then **refined at full resolution** (`refine_box` on 20 native-size grey frames): each edge snaps to the exact step, half-changing (blended) edge pixels count as gameplay, and 1 px (2 px at 1080p) more is shaved, so no gameplay strip shows at the panel's edges once it's scaled up ~5x. Edges on the frame border stay put. Per clip, `cam_visible()` compares the cam area with its usual look (median grey difference < 30) on 3 frames; clips without it use `fill`. Verified on a real 5.8 h GTA RP VOD: exact overlay box, in ~6 s.
    - **Optional `--captions`:** faster-whisper transcribes each clip with word timestamps, grouped 3 words per line into an `.srt`, burned in with the `subtitles` filter. ffmpeg runs with `cwd` set to the output folder so the `.srt` path needs no escaping.
+   - **`--format both`:** each moment is cut as its 9:16 layout plus a plain 16:9 twin `NN_..._horizontal.mp4` (same `.srt`; `Highlight.horizontal_file`).
 6. **Output:**
    - Clips go to `CLIPPER_OUT/<YYYY-MM-DD>/` (default `~/Videos/StreamClips`); a second stream on the same day goes to `<date>_2/`.
    - A `.source` file identifies the VOD. Re-running the same VOD reuses its folder and replaces its old `NN_*.mp4/.srt` files (other files are kept).
-   - Files are named `01_1h23m45s.mp4`. Each folder also gets `highlights.md` (with timestamped Twitch links) and `highlights.json`.
+   - Files are named `01_1h23m45s.mp4` (+ `01_1h23m45s_horizontal.mp4` with `--format both`; the re-run cleanup glob `NN_*` covers both). Each folder also gets `highlights.md` (with timestamped Twitch links) and `highlights.json`.
 
 ## Configuration
 
@@ -78,7 +79,7 @@ Expected failures raise `ClipperError` (no `sys.exit` inside the code). `main()`
 - `test_twitch_flow.py`: VOD matching, `--stream-ended` claim/wait/dedupe, recording offset, with a fake Helix
 - `test_facecam.py`: face clustering, overlay rectangle on a synthetic stillness map, chat panels cut off the cam on simulated frames, full-resolution edge refinement, layout planning, `--cam`
 - `test_obs_script.py`: the OBS event logic with a fake `obspython` module and clock
-- `test_end_to_end.py`: the full CLI on a generated video, including a split layout (skipped without ffmpeg)
+- `test_end_to_end.py`: the full CLI on a generated video, including a split layout and `--format both` (skipped without ffmpeg)
 
 CI: `.github/workflows/tests.yml` runs them on Ubuntu and Windows, Python 3.10 and 3.12.
 

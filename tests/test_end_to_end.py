@@ -57,6 +57,26 @@ def test_horizontal_and_dry_run(vod, tmp_path):
     assert dims(clip) == (640, 360)
 
 
+def test_both_formats(vod, tmp_path):
+    """--format both: every moment as a 9:16 clip and a 16:9 twin, both in the report."""
+    cli.main([str(vod), "--out", str(tmp_path), "--date", "2026-11-12", "--format", "both",
+              "--at", "0:00:20", "--skip-end", "10"])
+    folder = tmp_path / "2026-11-12"
+    clips = json.loads((folder / "highlights.json").read_text(encoding="utf-8"))["clips"]
+    assert len(clips) == 2
+    for c in clips:
+        assert c["horizontal_file"] == c["file"].replace(".mp4", "_horizontal.mp4")
+        assert dims(folder / c["file"]) == (1080, 1920)
+        assert dims(folder / c["horizontal_file"]) == (640, 360)
+    assert len(list(folder.glob("0*.mp4"))) == 4
+    md = (folder / "highlights.md").read_text(encoding="utf-8")
+    assert all(c["horizontal_file"] in md for c in clips)
+    # re-running vertical only replaces both kinds of old clips
+    cli.main([str(vod), "--out", str(tmp_path), "--date", "2026-11-12", "--at", "0:00:20",
+              "--max-clips", "0"])
+    assert [f.name for f in folder.glob("0*.mp4")] == [clips[0]["file"]]
+
+
 def test_split_layout_with_manual_cam(vod, tmp_path):
     cli.main([str(vod), "--out", str(tmp_path), "--date", "2026-11-12", "--max-clips", "1",
               "--cam", "0,40,200,112"])

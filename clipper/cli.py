@@ -67,7 +67,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     g.add_argument("--audio-weight", type=float, default=1.0)
 
     o = p.add_argument_group("output")
-    o.add_argument("--format", choices=["vertical", "horizontal"], default="vertical")
+    o.add_argument("--format", choices=["vertical", "horizontal", "both"], default="vertical",
+                   help="vertical 9:16 (default), horizontal 16:9, or both: every moment cut "
+                        "twice, the 16:9 one named NN_..._horizontal.mp4")
     o.add_argument("--layout", choices=["auto", "split", "fill", "blur"], default="auto",
                    help="vertical layout: auto (webcam on top if found, else fill), split "
                         "(always webcam on top), fill (gameplay fills the frame), blur "
