@@ -98,9 +98,9 @@ When you stop streaming, the OBS script starts the clipper in the background. Th
 | `fill` | The gameplay cropped to fill the whole 9:16 frame (the middle of the screen). |
 | `blur` | The whole 16:9 frame in the middle, over a blurred copy of itself. |
 
-How the webcam is found: the clipper samples 40 frames across the stream and looks for a face that stays in the same place (game characters move around, so they're ignored). It then finds the edges of the overlay: your room barely changes for hours, while the gameplay around it changes all the time. A panel attached to the webcam, such as a translucent chat box under or next to it, is cut off: it ends at a straight line and keeps changing (gameplay showing through, chat text), unlike the edge of your desk. The log says what it found, for example `webcam found: 460x340 at (0,160)`.
+How the webcam is found: the clipper samples 40 frames across the stream and looks for a face that stays in the same place (game characters move around, so they're ignored). It then finds the edges of the overlay: a straight line at the same place in every frame, where your camera picture meets a different picture (the gameplay), so the pixels on each side change independently of each other. Starting from your face, the first such line on each side is the webcam's edge. This works in a dark room and when you move a lot, and a panel attached to the webcam, such as a translucent chat box under or next to it, is left out: its own outer edge has the same (dimmed) gameplay on both sides. The edge of your desk or a shelf isn't mistaken for it either, because both sides of it are your room. The log says what it found, for example `webcam found: 460x340 at (0,160)`.
 
-- Each clip is checked: if the webcam isn't on screen during that clip (a BRB or full-screen scene), that clip uses `fill`.
+- Each clip is checked: if the webcam isn't on screen during that clip (a BRB or full-screen scene), that clip uses `fill`. A change in your room's lighting (the sun coming up, a lamp switched on) doesn't count: the overlay's border is still there.
 - If the detection gets it wrong, set the position yourself with `--cam X,Y,W,H`, in pixels of the original video (for 1080p: 0–1920 and 0–1080).
 - The gameplay part is a crop of the middle of the screen, moved aside if it would overlap the webcam.
 
