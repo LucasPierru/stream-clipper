@@ -21,29 +21,6 @@ def test_face_cluster_rejects_rare_or_huge_faces():
     assert face_cluster([], 40, 640, 360) is None
 
 
-def still_map(cam=(0, 55, 153, 112), person=(40, 70, 70, 97), seed=0):
-    """Per-pixel variation: gameplay changes a lot, the room barely, the person a bit."""
-    rng = np.random.default_rng(seed)
-    s = rng.normal(65, 6, (360, 640))
-    x, y, w, h = cam
-    s[y:y + h, x:x + w] = rng.normal(18, 4, (h, w))
-    px, py, pw, ph = person
-    s[py:py + ph, px:px + pw] = rng.normal(45, 8, (ph, pw))
-    return s
-
-
-def test_cam_rect_finds_the_overlay_edges():
-    box = cam_rect(still_map(), Box(70, 85, 26, 35))
-    assert box is not None
-    assert abs(box.x - 0) <= 2 and abs(box.y - 55) <= 2
-    assert abs(box.w - 153) <= 3 and abs(box.h - 112) <= 3
-
-
-def test_cam_rect_rejects_when_there_is_no_overlay():
-    rng = np.random.default_rng(1)
-    assert cam_rect(rng.normal(65, 6, (360, 640)), Box(300, 150, 26, 35)) is None
-
-
 @pytest.mark.parametrize("text,ok", [("0,80,480,270", True), ("1,2,3", False), ("0,0,-5,10", False)])
 def test_parse_box(text, ok):
     if ok:
@@ -79,27 +56,34 @@ def test_model_file_is_bundled():
     assert facecam.MODEL.is_file() and facecam.MODEL.stat().st_size > 200_000
 
 
+def gameplay(n, h, w, seed=0):
+    """Changing, spatially smooth frames (like real gameplay, unlike per-pixel noise)."""
+    rng = np.random.default_rng(seed)
+    return np.array([np.clip((_blur(rng.uniform(0, 255, (h, w)), 8) - 128) * 8 + rng.uniform(40, 200), 0, 255)
+                     for _ in range(n)], np.float32)
+
+
 def test_refine_box_snaps_to_exact_edges_and_shaves_the_blend():
     """Real overlay: x 0..119, y 60..149 in a 480x270 video. The coarse box from the
     640-px analysis is a few pixels too big; refining must land just inside the edges."""
     rng = np.random.default_rng(0)
-    frames = rng.uniform(0, 255, (12, 270, 480)).astype(np.float32)        # gameplay
+    frames = gameplay(12, 270, 480)
     frames[:, 60:150, :120] = 100 + rng.normal(0, 3, (12, 90, 120))         # still room
     frames[:, 60:150, 120] = (frames[:, 60:150, 119] + frames[:, 60:150, 121]) / 2  # blended edge
     coarse = Box(0, 57, 124, 96)                                             # 3-4 px too big
     box = facecam.refine_box(frames, coarse, (True, False, False, False), scale=0.75)
     assert box.x == 0                                  # on the frame border: untouched
-    assert box.y == 61                                 # first still row 60, + 1 px inset
-    assert box.x + box.w == 119                        # first changing column 120, - 1 px inset
+    assert box.y == 61                                 # first room row 60, + 1 px inset
+    assert box.x + box.w == 119                        # blended column 120 excluded, - 1 px inset
     assert box.y + box.h == 149
     # every pixel inside the result is room, none is gameplay or blend
     assert frames[:, box.y:box.y + box.h, box.x:box.x + box.w].std(axis=0).max() < 20
 
 
 def test_refine_edge_direction():
-    profile = np.array([60.0] * 10 + [15.0] * 10)      # changing, then still
-    assert facecam.refine_edge(profile, 12, 5, -1) == 10   # first still pixel
-    assert facecam.refine_edge(profile[::-1].copy(), 8, 5, +1) == 10   # first changing pixel
+    seam = np.array([1.0] * 9 + [40.0] + [1.0] * 10)   # line between pixels 9 and 10
+    assert facecam.refine_edge(seam, 12, 5, -1) == 10   # first webcam pixel (webcam on the right)
+    assert facecam.refine_edge(seam, 8, 5, +1) == 10    # exclusive end (webcam on the left)
 
 
 # ----------------------------------------------------------------------------
@@ -115,13 +99,14 @@ CAM = (0, 55, 153, 112)     # x, y, w, h of the real webcam, analysis pixels
 FACE = Box(70, 85, 26, 35)
 
 
-def stream_frames(chat="below", opacity=0.65, text=True, desk=False, drift=0.0, seed=0, n=40):
+def stream_frames(chat="below", opacity=0.65, text=True, desk=False, drift=0.0, seed=0, n=40,
+                  room_level=1.0, busy=False, glow=0.0):
     """Grey analysis frames: changing gameplay, a still room with a moving person, and
     optionally a translucent chat panel (dimmed gameplay + text lines) next to the cam."""
     rng = np.random.default_rng(seed)
     H, W = 360, 640
     x, y, w, h = CAM
-    room = _blur(rng.uniform(40, 200, (H, W)), 4)[y:y + h, x:x + w]
+    room = _blur(rng.uniform(40, 200, (H, W)), 4)[y:y + h, x:x + w] * room_level
     if desk:
         room[95:] = 60                                       # straight desk edge inside the cam
     yy, xx = np.mgrid[y:y + h, x:x + w]
@@ -129,10 +114,11 @@ def stream_frames(chat="below", opacity=0.65, text=True, desk=False, drift=0.0, 
     for t in range(n):
         f = np.clip((_blur(rng.uniform(0, 255, (H, W)), 3) - 128) * 4 + rng.uniform(40, 200), 0, 255)
         cam = room * (1 + drift * (t / n - 0.5)) + rng.normal(0, 2, room.shape)
-        dy, dx = rng.integers(-3, 4, 2)
+        cam *= 1 + glow * (f.mean() / 128 - 1)               # room lit by the monitor
+        dy, dx = rng.integers(-12, 13, 2) if busy else rng.integers(-3, 4, 2)
         person = ((xx - 83 - dx) / 30) ** 2 + ((yy - 140 - dy) / 45) ** 2 < 1
         person |= ((xx - 83 - dx) / 14) ** 2 + ((yy - 102 - dy) / 18) ** 2 < 1
-        cam[person] = 170 + rng.normal(0, 4, person.sum())
+        cam[person] = (rng.uniform(60, 220) if busy else 170) + rng.normal(0, 4, person.sum())
         f[y:y + h, x:x + w] = cam
         if chat:
             px0, py0, px1, py1 = (x, y + h, x + w, y + h + 140) if chat == "below" else (x + w, y, x + w + 120, y + h)
@@ -146,10 +132,9 @@ def stream_frames(chat="below", opacity=0.65, text=True, desk=False, drift=0.0, 
 
 
 def detect(frames):
-    still = frames.std(axis=0)
-    box = cam_rect(still, FACE)
+    box = cam_rect(frames, FACE)
     assert box is not None
-    return box, facecam.trim_panels(np.median(frames, axis=0), still, box, FACE)
+    return box
 
 
 def assert_is_cam(box):
@@ -158,35 +143,60 @@ def assert_is_cam(box):
 
 
 @pytest.mark.parametrize("kw", [
+    dict(chat=None),                                          # just the webcam
     dict(),                                                   # chat under the cam
     dict(chat="right"),                                       # chat next to it
     dict(opacity=0.4),
-    dict(desk=True),                                          # cut at the panel, not the desk
+    dict(desk=True),                                          # stop at the panel, not the desk
+    dict(chat=None, desk=True, drift=0.4),                    # desk edge, room light drifting
     dict(opacity=0.85, text=False, drift=0.4),                # dark quiet panel, room light drifting
-], ids=["below", "right", "light", "desk", "dark-quiet-drift"])
-def test_chat_panel_is_cut_off_the_webcam(kw):
-    raw, box = detect(stream_frames(**kw))
-    assert_is_cam(box)
+    # a real stream: dark room lit by the monitor, the streamer moving a lot, a mostly
+    # opaque box under the cam. The room changes about as much as the box, so the old
+    # "stillness" method kept the box in the webcam crop (or found no webcam at all)
+    dict(opacity=0.75, text=False, room_level=0.15, busy=True, glow=1.0),
+], ids=["plain", "below", "right", "light", "desk", "desk-drift", "dark-quiet-drift", "dark-busy"])
+def test_webcam_edges_without_attached_panels(kw):
+    assert_is_cam(detect(stream_frames(**kw)))
 
 
-def test_chat_panel_was_taken_in_before():
-    """The bug: the panel edge is a stronger step than the cam edge, so cam_rect alone
-    returned webcam + chat."""
-    raw, _ = detect(stream_frames())
-    assert raw.h > CAM[3] + 100
-
-
-@pytest.mark.parametrize("kw", [dict(chat=None), dict(chat=None, desk=True, drift=0.4)], ids=["plain", "desk-drift"])
-def test_no_panel_nothing_is_cut(kw):
-    raw, box = detect(stream_frames(**kw))
-    assert box == raw
-    assert_is_cam(box)
+def test_cam_rect_rejects_when_there_is_no_overlay():
+    assert cam_rect(gameplay(40, 360, 640), FACE) is None
 
 
 def test_refine_box_next_to_a_chat_panel():
     rng = np.random.default_rng(0)
-    frames = rng.uniform(0, 255, (12, 270, 480)).astype(np.float32)
+    frames = gameplay(12, 270, 480)
     frames[:, 150:250, :120] *= 0.35                                    # translucent chat
     frames[:, 60:150, :120] = 100 + rng.normal(0, 3, (12, 90, 120))     # still room
     box = facecam.refine_box(frames, Box(0, 57, 124, 92), (True, False, False, False), scale=0.75)
     assert box.y + box.h == 149                                         # last cam row, - 1 px inset
+
+
+# ----------------------------------------------------------------------------
+# Per clip: is the webcam on screen?
+# ----------------------------------------------------------------------------
+def visible(monkeypatch, cam, frames):
+    bgr = np.repeat(np.clip(frames, 0, 255).astype(np.uint8)[..., None], 3, axis=3)
+    monkeypatch.setattr(facecam, "grab_frames", lambda path, times: bgr[:len(times)])
+    return facecam.cam_visible("v.mp4", cam, 0, 60)
+
+
+@pytest.fixture
+def usual_cam():
+    """The cam as detected over a night stream: dark room, chat box under it."""
+    frames = stream_frames(opacity=0.75, text=False, room_level=0.15, busy=True, glow=1.0)
+    x, y, w, h = CAM
+    small = Box(x, y, w, h)
+    return facecam.Facecam(small.scaled(3), small, np.median(frames[:, y:y + h, x:x + w], axis=0), 3.0)
+
+
+def test_cam_visible_when_the_room_looks_different(monkeypatch, usual_cam):
+    """The sun came up: the cam area no longer looks like usual, but its border is there."""
+    sunrise = stream_frames(opacity=0.75, text=False, room_level=1.0, busy=True, seed=7, n=3)
+    x, y, w, h = CAM
+    assert np.median(np.abs(sunrise[0, y:y + h, x:x + w] - usual_cam.reference)) >= facecam.MATCH_DIFF
+    assert visible(monkeypatch, usual_cam, sunrise)
+
+
+def test_cam_not_visible_in_a_full_screen_scene(monkeypatch, usual_cam):
+    assert not visible(monkeypatch, usual_cam, gameplay(3, 360, 640, seed=3))
