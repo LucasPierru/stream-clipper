@@ -34,12 +34,16 @@ def clip_name(index: int, h: Highlight) -> str:
     return f"{index:02d}_{twitch_t(h.peak)}"
 
 
-def write_report(out_dir: Path, src: Source, highlights: list[Highlight]) -> None:
+def write_report(out_dir: Path, src: Source, highlights: list[Highlight],
+                 music: list[tuple[float, float]] = ()) -> None:
     lines = [f"# {src.title}", "", f"Stream date: {src.date}  ", f"Source: {src.url or src.path}  "]
     if src.url and src.downloaded is False:
         lines.append(f"Recording: {src.path}  ")
     if src.vod_offset:
         lines.append(f"The VOD starts {src.vod_offset:+.0f}s into the recording (links are corrected for it).  ")
+    if music:
+        total = sum(b - a for a, b in music)
+        lines.append(f"Music removed (voice kept) in {len(music)} stretches, {hms(total)} in all.  ")
     lines += ["", "| # | File | Time | Score | Why | Said |", "|---|---|---|---|---|---|"]
     for i, h in enumerate(highlights, 1):
         when = hms(h.peak)  # file time, same as the clip name and --at
@@ -52,4 +56,5 @@ def write_report(out_dir: Path, src: Source, highlights: list[Highlight]) -> Non
     (out_dir / "highlights.json").write_text(json.dumps(
         {"title": src.title, "date": src.date.isoformat(), "source": src.url or str(src.path),
          "file": str(src.path), "vod_offset": src.vod_offset,
+         "music_removed": [list(s) for s in music],
          "clips": [asdict(h) for h in highlights]}, indent=2, ensure_ascii=False), encoding="utf-8")

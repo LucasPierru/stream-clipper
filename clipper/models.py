@@ -17,6 +17,8 @@ class Source:
     # Seconds into this file where the Twitch VOD starts (VOD time = file time - vod_offset).
     # 0 for downloaded VODs; set for local OBS recordings linked to their VOD.
     vod_offset: float = 0.0
+    # Audio track to use instead of the video's own: the music-free one (--remove-music).
+    audio: Path | None = None
 
     def to_vod_time(self, t: float) -> float:
         return t - self.vod_offset

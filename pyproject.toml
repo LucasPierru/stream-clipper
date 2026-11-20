@@ -24,6 +24,7 @@ classifiers = [
 
 [project.optional-dependencies]
 captions = ["faster-whisper"]   # only for --captions (large download)
+music = ["torch", "torchaudio", "demucs", "transformers"]   # only for --remove-music (large; see README for the GPU build)
 dev = ["pytest>=7"]
 
 [project.scripts]
