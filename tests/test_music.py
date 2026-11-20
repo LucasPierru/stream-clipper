@@ -1,5 +1,5 @@
-"""--remove-music: music stretches, the streamed voice-only replacement, the full CLI.
-The real models (AST, Demucs) are replaced by fakes; they need big downloads."""
+"""--remove-music: music stretches, the voice filter, the streamed replacement, the CLI.
+The real models (AST, WavLM, Demucs) are replaced by fakes; they need big downloads."""
 import json
 import shutil
 import subprocess
@@ -59,8 +59,79 @@ def rms_per_second(path):
 
 
 def loud_windows(windows):
-    """Fake detector: 'music' = loud."""
-    return np.array([float(np.sqrt((w ** 2).mean()) > 0.1) for w in windows])
+    """Fake detector: 'music' = loud; never speech."""
+    return np.array([[float(np.sqrt((w ** 2).mean()) > 0.1), 0.0] for w in windows]).reshape(-1, 2)
+
+
+def pitch(w, rate=music.DETECT_SR):
+    spec = np.abs(np.fft.rfft(w))
+    return np.argmax(spec) * rate / len(w)
+
+
+def by_pitch(windows):
+    """Fake speaker model: 220 Hz is 'you', anything else someone else."""
+    return np.array([[1.0, 0.0] if abs(pitch(w) - 220) < 30 else [0.0, 1.0] for w in windows])
+
+
+def tag_by_pitch(windows):
+    """Fake AST on the vocals: 660 Hz is a game character talking, 440 Hz a singer."""
+    out = []
+    for w in windows:
+        f = pitch(w)
+        out.append([0.0, 0.9] if abs(f - 660) < 30 else [0.6, 0.2] if abs(f - 440) < 30 else [0.0, 0.9])
+    return np.array(out)
+
+
+def voices(seconds_each=4):
+    """You (220 Hz), a singer (440 Hz), silence, a game character talking (660 Hz)."""
+    sr = music.SEP_SR
+    t = np.arange(4 * seconds_each * sr) / sr
+    freq = np.select([t < 4, t < 8, t < 12], [220, 440, 0], 660)
+    x = (0.3 * np.sin(2 * np.pi * freq * t) * (freq > 0)).astype(np.float32)
+    return np.stack([x, x], axis=1)
+
+
+def sec(gain, a, b):
+    return gain[int(a * music.SEP_SR):int(b * music.SEP_SR)]
+
+
+def test_voice_filter_keeps_only_you():
+    gain, stats = music.voice_gain(voices(), by_pitch, tag_by_pitch, np.array([1.0, 0.0]))
+    assert sec(gain, 0.6, 3.4).min() > 0.99            # you
+    assert sec(gain, 4.6, 7.4).max() < 0.01            # the singer
+    assert sec(gain, 12.6, 15.4).max() < 0.01          # a game character, over music: muted too
+    assert stats["your voice"] == pytest.approx(4, abs=1)
+    assert stats["muted"] == pytest.approx(8, abs=1)
+
+
+def test_voice_filter_can_keep_game_speech():
+    gain, _ = music.voice_gain(voices(), by_pitch, tag_by_pitch, np.array([1.0, 0.0]), keep_speech=True)
+    assert sec(gain, 0.6, 3.4).min() > 0.99
+    assert sec(gain, 4.6, 7.4).max() < 0.01
+    assert sec(gain, 12.6, 15.4).min() > 0.99
+
+
+def test_without_a_voiceprint_the_music_stretches_go_silent():
+    gain, _ = music.voice_gain(voices(), by_pitch, tag_by_pitch, None)
+    assert gain.max() < 0.01
+
+
+@needs_ffmpeg
+def test_voiceprint_is_the_voice_heard_most(tmp_path):
+    """You (220 Hz) talk most; a game voice (440 Hz) a little; music in 60-90 s is skipped."""
+    src = tmp_path / "a.wav"
+    expr = "0.3*sin(2*PI*if(lt(t,60),220,if(lt(t,90),330,440))*t)"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                    f"aevalsrc='{expr}':s=16000:d=100", str(src)], check=True)
+    db = np.full(100, -20.0)
+    seen = []
+
+    def embed(windows):
+        seen.extend(pitch(w) for w in windows)
+        return by_pitch(windows)
+    v = music.voiceprint(src, [(60.0, 90.0)], db, embed)
+    assert v @ np.array([1.0, 0.0]) > 0.99
+    assert not any(abs(f - 330) < 30 for f in seen)          # never sampled the music
 
 
 @needs_ffmpeg
@@ -87,6 +158,27 @@ def test_clean_track_replaces_only_the_spans(tmp_path):
 
 
 @needs_ffmpeg
+def test_a_long_span_is_processed_in_pieces(tmp_path, monkeypatch):
+    """With 10 s pieces, a 40 s stretch goes through in pieces of at most 10 + 2 x 1 s,
+    seamlessly: the whole stretch is at half level, the rest untouched."""
+    monkeypatch.setattr(music, "PIECE", 10)
+    monkeypatch.setattr(music, "CONTEXT", 1)
+    src, out = tmp_path / "a.wav", tmp_path / "clean.m4a"
+    tone(src, 70, (0, 70))
+    sizes = []
+
+    def half(mix):
+        sizes.append(len(mix) / music.SEP_SR)
+        return mix * 0.5
+    music.write_clean_track(src, [(15.0, 55.0)], out, half)
+    assert len(sizes) >= 4 and max(sizes) <= 12.01
+    before, after = rms_per_second(src), rms_per_second(out)
+    assert np.allclose(after[16:54], before[16:54] * 0.5, rtol=0.05)
+    assert np.allclose(after[2:14], before[2:14], rtol=0.05)
+    assert np.allclose(after[57:68], before[57:68], rtol=0.05)
+
+
+@needs_ffmpeg
 def test_cli_remove_music_end_to_end(tmp_path, monkeypatch):
     """Video with a loud 'song' at 40-80 s: the clip's audio is silent there."""
     vod = tmp_path / "vod.mp4"
@@ -96,6 +188,7 @@ def test_cli_remove_music_end_to_end(tmp_path, monkeypatch):
                     "-preset", "ultrafast", "-c:a", "aac", "-shortest", str(vod)], check=True)
     monkeypatch.setattr(music, "device", lambda: "cpu")
     monkeypatch.setattr(music, "load_detector", lambda dev: loud_windows)
+    monkeypatch.setattr(music, "load_speaker", lambda dev: by_pitch)
     monkeypatch.setattr(music, "load_separator", lambda dev: lambda mix: np.zeros_like(mix))
     cli.main([str(vod), "--out", str(tmp_path / "out"), "--date", "2026-11-20", "--remove-music",
               "--at", "0:01:00", "--clip-length", "20", "--max-clips", "0", "--format", "horizontal"])

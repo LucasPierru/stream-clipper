@@ -87,7 +87,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     o.add_argument("--parts", action="store_true",
                    help="also cut the whole VOD into long parts for YouTube, at natural moments")
     o.add_argument("--part-length", type=parse_minutes, default=(C.PART_MIN, C.PART_MAX),
-                   metavar="MIN-MAX", help="part length in minutes (default: 45-60)")
+                   metavar="MIN-MAX", help="part length in minutes (default: 30-60)")
     o.add_argument("--dry-run", action="store_true", help="only list highlights, cut nothing")
     o.add_argument("--keep-vod", action="store_true",
                    help="keep the downloaded VOD in the cache (handy to re-run while tuning)")
@@ -105,11 +105,11 @@ def parse_box(text: str) -> Box:
 
 
 def parse_minutes(text: str) -> tuple[float, float]:
-    """'45-60' (minutes) -> (2700.0, 3600.0) seconds"""
+    """'30-60' (minutes) -> (1800.0, 3600.0) seconds"""
     try:
         lo, hi = (float(v) * 60 for v in text.split("-"))
     except ValueError:
-        raise argparse.ArgumentTypeError("expected MIN-MAX in minutes, e.g. 45-60") from None
+        raise argparse.ArgumentTypeError("expected MIN-MAX in minutes, e.g. 30-60") from None
     if not 0 < lo <= hi:
         raise argparse.ArgumentTypeError("expected 0 < MIN <= MAX")
     return lo, hi

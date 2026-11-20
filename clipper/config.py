@@ -79,11 +79,18 @@ MUSIC_OFF = 0.20        # ...and lasts while it stays above this
 MUSIC_MIN = 8           # seconds; shorter music blips are left alone
 MUSIC_GAP = 10          # seconds; music stretches closer than this are merged
 MUSIC_PAD = 2           # seconds added on both sides of a stretch
+# ...and in those stretches, the separated vocals are kept only where they are:
+VOICE_SIM = 0.65        # your voice: similarity to your voiceprint (0-1) at least this
+KEEP_GAME_SPEECH = False  # also keep other clear speech (game characters)? Lets lyrics through
+SPEECH_KEEP = 0.5       # with KEEP_GAME_SPEECH: "Speech" probability at least this...
+SPEECH_MUSIC_MAX = 0.15 # ...and a "Music" probability below this
+VOICE_QUIET_DB = -45    # vocals quieter than this (dBFS) are silence anyway
 
 # --parts: the whole VOD in long parts for YouTube, cut at natural moments
-PART_MIN = 45 * 60      # seconds; a part is between these two lengths...
-PART_MAX = 60 * 60      # ...except the last one, which can be up to PART_MAX + PART_MIN / 3
-DARK_LEVEL = 28         # a keyframe this dark on average (0-255), and flat, is a black/loading screen
+PART_MIN = 30 * 60      # seconds; a part is between these two lengths...
+PART_MAX = 60 * 60      # ...except the last one, which can be up to PART_MAX + PART_MIN / 2
+BLACK_LEVEL = 20        # a pixel darker than this (0-255) counts as black...
+BLACK_FRAC = 0.85       # ...and a frame with this share of black pixels is a fade / loading screen
 
 # libass style for burned-in captions (sizes are relative to a 288px-tall canvas)
 CAPTION_STYLE = ("FontName=Arial,Fontsize=13,Bold=1,PrimaryColour=&H00FFFFFF,"
