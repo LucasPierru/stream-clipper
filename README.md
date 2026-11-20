@@ -4,6 +4,7 @@
 
 - **Finds the moments by itself:** spots where you suddenly get louder (yelling, laughing, hype). Optionally also uses your Twitch stream markers, timestamps you choose, or chat activity.
 - **Cuts 9:16 clips that fill the screen:** 1080×1920, with your webcam on top and the gameplay below when it finds a webcam overlay, or the gameplay filling the whole frame when it doesn't. Optionally with burned-in captions (Whisper).
+- **Optional, for YouTube:** the whole VOD cut into 45–60 min parts at natural moments (`--parts`), and music like in-game radio taken out while keeping your voice (`--remove-music`).
 - **Runs on your own PC.** No server, no account other than your own Twitch app, and nothing is ever uploaded: you review the clips and post the ones you like.
 
 Clips go to `~/Videos/StreamClips/<stream date>/` (a second stream that day goes to `<date>_2/`). Each folder gets a `highlights.md` listing every clip, with a link to that moment in your VOD.
@@ -44,6 +45,8 @@ Then install the clipper. Add `[captions]` to also get `--captions` (faster-whis
 python -m pip install -e .               # clipper only
 python -m pip install -e ".[captions]"   # clipper + captions
 ```
+
+For `--remove-music`, see [Music removal](#music-removal---remove-music): it needs PyTorch, and the right build for your graphics card has to be installed first.
 
 Activate the venv again in every new terminal before running the clipper by hand. The OBS script doesn't need this: it finds `.venv` by itself.
 
@@ -108,6 +111,44 @@ How the webcam is found: the clipper samples 40 frames across the stream and loo
 
 `--format vertical` (default) makes the 9:16 clips above. `--format horizontal` makes 16:9 clips of the whole frame instead, for example for a YouTube compilation. `--format both` makes both from the same moments: `01_1h23m45s.mp4` (9:16) and `01_1h23m45s_horizontal.mp4` (16:9), with the same captions, and `highlights.md` lists both. Cutting takes about twice as long. For OBS runs, put `--format both` in the script's "Extra flags".
 
+## Full VOD in parts, without the music (for YouTube)
+
+### Parts: `--parts`
+
+Cuts the whole VOD into parts of 45–60 minutes in `<stream date>/parts/`, named `part_01_0h00m00s.mp4`, `part_02_0h52m10s.mp4` and so on. A `parts.md` lists each part's start time (with a link into the VOD), length, and why it was cut there.
+
+Each cut is placed somewhere between 45 and 60 minutes after the previous one, at the most natural moment in that window:
+
+- **a black or loading screen** (counts the most): it usually means a mission, cutscene or scene just ended
+- **a scene change**: the picture changes completely
+- **quiet audio**: you aren't in the middle of a sentence
+- **never inside a highlight clip**
+
+When nothing in the window stands out, the part runs as long as allowed. The last part can run up to 75 minutes, so it's never a short leftover. It can't truly know that a mission is over; loading screens are the strongest hint it has, so on stretches without any it falls back to a quiet moment. Check `parts.md`, and change a cut by hand if needed.
+
+The cuts are lossless copies of the video (no re-encoding), so they're fast and keep the full quality. Change the length with `--part-length 30-45` (minutes).
+
+### Music removal: `--remove-music`
+
+Twitch mutes only part of the copyrighted music in a VOD, and YouTube claims what's left. `--remove-music` finds every stretch with music (for example GTA radio while you drive) and keeps only your voice there, using an AI model that separates voices from the rest (Demucs). Everything else, including the game audio, stays as it was. It applies to everything the run makes: the parts, the clips and their captions. Highlight detection also runs on the music-free audio, so a loud song doesn't count as a moment.
+
+Limits:
+- It can't tell copyrighted music from royalty-free music, so all music goes, including a game's own soundtrack.
+- In those stretches, the game sounds go too, and a song's singer can come through along with your voice.
+- Parts that Twitch already muted stay silent.
+
+The models are downloaded on first use (about 1 GB). With an NVIDIA graphics card it takes a few minutes for a long VOD; on the CPU it works but can take longer than the stream itself. The music-free audio is cached (`CACHE_DIR/<key>_nomusic.m4a`), so re-runs on a kept VOD reuse it.
+
+**Setup, once, with the venv active:**
+
+1. Install PyTorch with GPU support: on [pytorch.org](https://pytorch.org/get-started/locally/), pick Windows, Pip, Python and the newest CUDA version, and run the command it shows with `torch torchaudio`. It looks like `python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu130`.
+2. `python -m pip install -e ".[music]"`
+3. Check that the GPU is used: `python -c "import torch; print(torch.cuda.is_available())"` should print `True`. The log line `music removal on the GPU (...)` confirms it during a run.
+
+Without step 1, pip installs the CPU-only PyTorch, which works but is slow.
+
+**For OBS runs**, put `--parts --remove-music` in the script's "Extra flags" (with `--format both` if you want that too).
+
 ## Manual runs
 
 Activate the venv first (see [Install](#1-install)). In Git Bash, use forward slashes: `\` is an escape character there.
@@ -135,6 +176,8 @@ After `pip install -e .`, `stream-clipper` works as a command too.
 | You prefer the whole frame over a blurred copy   | `--layout blur`                    |
 | You want 16:9 clips                              | `--format horizontal`              |
 | You want both 9:16 and 16:9 clips                | `--format both`                    |
+| You want the whole VOD in parts for YouTube      | `--parts` (`--part-length 45-60`)  |
+| Music gets your YouTube uploads claimed          | `--remove-music`                   |
 
 To try settings without cutting anything, use `--dry-run`. Downloaded VODs are deleted once the clips are made; add `--keep-vod` to keep one in `~/.cache/stream_clipper` while you re-run to tune settings (the audio analysis is always cached, it's tiny). Local video files are never deleted. Other folders: `CLIPPER_OUT` and `CLIPPER_CACHE` in `.env`.
 
@@ -157,6 +200,10 @@ The defaults live as constants in the "Tuning defaults" part of `clipper/config.
 | `CAPTION_STYLE`   | white bold Arial | none     | Look of the burned-in `--captions` (font, size, outline, position). |
 | `AUDIO_SR`        | `8000`  | none              | Sample rate for the loudness analysis. There's no need to change it. |
 | `VIDEO_EXTS`      | `.mp4`, `.mkv`, ... | none  | File types recognised as video files. |
+| `PART_MIN`, `PART_MAX` | `45*60`, `60*60` | `--part-length` | Length of the `--parts`, in seconds. |
+| `DARK_LEVEL`      | `28`    | none              | How dark (0–255) a frame must be to count as a black/loading screen for `--parts`. |
+| `MUSIC_ON`, `MUSIC_OFF` | `0.35`, `0.20` | none | `--remove-music`: a music stretch starts when the music detector is this sure, and lasts while it stays above the second value. Raise them if talking gets treated as music. |
+| `MUSIC_MIN`, `MUSIC_GAP`, `MUSIC_PAD` | `8`, `10`, `2` | none | Seconds: shorter music is left alone, closer stretches are merged, and each stretch is widened by this much. |
 
 If you edit `clipper/config.py`, a later `git pull` may conflict with your edit. Flags in the OBS "Extra flags" box avoid that.
 
@@ -167,7 +214,7 @@ pip install -e ".[dev]"
 python -m pytest
 ```
 
-The tests run offline: the Twitch API and OBS are faked, and the end-to-end tests generate a test video with ffmpeg (skipped if ffmpeg isn't installed). GitHub Actions runs them on Linux and Windows for every push.
+The tests run offline: the Twitch API, OBS and the music-removal models are faked, and the end-to-end tests generate a test video with ffmpeg (skipped if ffmpeg isn't installed). GitHub Actions runs them on Linux and Windows for every push.
 
 `stream_clipper.py` is just the launcher (`python -m clipper` works too). The code lives in `clipper/`:
 
@@ -179,6 +226,8 @@ The tests run offline: the Twitch API and OBS are faked, and the end-to-end test
 | `twitch.py`   | Twitch API, tokens, `--twitch-login`, markers                         |
 | `facecam.py`  | webcam overlay detection (YuNet face model in `clipper/data/`)        |
 | `render.py`   | ffmpeg cutting, layouts, Whisper captions                             |
+| `music.py`    | `--remove-music`: music detection (AST) and voice separation (Demucs) |
+| `parts.py`    | `--parts`: natural cut points, lossless VOD parts                     |
 | `output.py`   | date folders, `highlights.md` / `.json`                               |
 | `pipeline.py` | one stream → clips                                                    |
 | `state.py`    | `processed_streams.json`, so each stream is clipped once              |

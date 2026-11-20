@@ -72,11 +72,14 @@ def video_filter(layout: str, src_w: int = 1920, src_h: int = 1080, cam: Box | N
     return chain + ";[v0]null[v]"
 
 
-def cut(src: Path, h: Highlight, out: Path, args, filter_graph: str) -> None:
-    """Encode one clip. Runs in the output folder so the .srt path needs no escaping."""
-    run(["ffmpeg", "-y", "-v", "error", "-ss", f"{h.start:.2f}", "-i", str(src),
+def cut(src: Path, h: Highlight, out: Path, args, filter_graph: str, audio: Path | None = None) -> None:
+    """Encode one clip, with the audio from `audio` instead of the video if given.
+    Runs in the output folder so the .srt path needs no escaping."""
+    ss = f"{h.start:.2f}"
+    inputs = ["-ss", ss, "-i", str(src)] + (["-ss", ss, "-i", str(audio)] if audio else [])
+    run(["ffmpeg", "-y", "-v", "error", *inputs,
          "-t", f"{h.length:.2f}", "-filter_complex", filter_graph,
-         "-map", "[v]", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast",
+         "-map", "[v]", "-map", "1:a:0" if audio else "0:a:0?", "-c:v", "libx264", "-preset", "veryfast",
          "-crf", str(args.crf), "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
          "-movflags", "+faststart", out.name], cwd=out.parent)
 

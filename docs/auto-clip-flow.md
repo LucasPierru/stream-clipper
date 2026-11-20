@@ -22,7 +22,7 @@ flowchart TD
     find --> claim[Write its stream id to processed_streams.json]
     claim --> wait[Wait --vod-delay 120 s<br/>for Twitch to finish the VOD]
     wait --> dl[Download the VOD with yt-dlp]
-    dl --> pipe[Detect moments, cut 9:16 clips<br/>(+ 16:9 with --format both),<br/>write highlights.md]
+    dl --> pipe[Detect moments, cut 9:16 clips<br/>(+ 16:9 with --format both),<br/>VOD parts with --parts,<br/>write highlights.md]
     local --> link[Find the matching VOD for links,<br/>correct for the time offset]
     link --> pipe
 ```
@@ -40,9 +40,9 @@ So `obs/stream_clipper_obs.py` is only the **trigger**. It reacts to OBS events 
 3. **Find the VOD:** Helix `/videos?type=archive`. Twitch lists the archive as soon as a stream starts, so it's there immediately. The one whose `created_at` is closest to the stream start (within 10 min) is picked.
 4. **Claim it:** the stream id goes into `processed_streams.json` right away, so a second run (or pressing the test button afterwards) won't clip it again.
 5. **Wait** `--vod-delay` (120 s) for Twitch to finish the VOD.
-6. **Clip:** yt-dlp download into `CACHE_DIR` (rewritten once with a seek index if Twitch sent a fragmented MP4, so seeks are instant), then audio analysis, picking moments, ffmpeg cuts, and `highlights.md` / `.json`.
+6. **Clip:** yt-dlp download into `CACHE_DIR` (rewritten once with a seek index if Twitch sent a fragmented MP4, so seeks are instant), then (with `--remove-music`) the music-free audio, audio analysis, picking moments, ffmpeg cuts, and `highlights.md` / `.json`; with `--parts`, the whole VOD in 45–60 min parts and `parts/parts.md`.
 
-Clips usually show up **about 5–15 minutes** after the stream, mostly spent downloading.
+Clips usually show up **about 5–15 minutes** after the stream, mostly spent downloading. `--remove-music` adds a few minutes on an NVIDIA GPU (much more on the CPU), and `--parts` a minute or two.
 
 ### Optional: when there's a local recording
 
@@ -95,6 +95,8 @@ Script settings: on/off, use the local recording, path to `stream_clipper.py`, P
 | `CACHE_DIR/processed_streams.json` | Stream ids already clipped. Delete an id to allow it again. |
 | `CACHE_DIR/<vod_id>.mp4` | Downloaded VOD, deleted after clipping unless `--keep-vod` (also kept if the run fails or is a `--dry-run`) |
 | `CACHE_DIR/<key>_loudness.npy` | Cached audio analysis, so re-runs while tuning are fast |
+| `CACHE_DIR/<key>_nomusic.m4a`, `_music.json`, `_musicprob.npy` | `--remove-music`: the music-free audio track (deleted with the VOD), the music stretches, the per-second music probability |
+| `CACHE_DIR/<key>_keyframes.npz` | `--parts`: keyframe times and tiny thumbnails, for finding cut points |
 
 `CACHE_DIR` defaults to `~/.cache/stream_clipper` (`CLIPPER_CACHE` in `.env`).
 

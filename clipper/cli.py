@@ -81,6 +81,13 @@ def parse_args(argv=None) -> argparse.Namespace:
     o.add_argument("--lang", default=None, help="caption language, e.g. en or fr (default: auto)")
     o.add_argument("--crf", type=int, default=20, help="video quality, lower = better/bigger")
     o.add_argument("--max-height", type=int, default=1080, help="max VOD resolution to download")
+    o.add_argument("--remove-music", action="store_true",
+                   help="take music (e.g. in-game radio) out of clips and parts, keeping your voice "
+                        "(needs the music extra; an NVIDIA GPU makes it fast)")
+    o.add_argument("--parts", action="store_true",
+                   help="also cut the whole VOD into long parts for YouTube, at natural moments")
+    o.add_argument("--part-length", type=parse_minutes, default=(C.PART_MIN, C.PART_MAX),
+                   metavar="MIN-MAX", help="part length in minutes (default: 45-60)")
     o.add_argument("--dry-run", action="store_true", help="only list highlights, cut nothing")
     o.add_argument("--keep-vod", action="store_true",
                    help="keep the downloaded VOD in the cache (handy to re-run while tuning)")
@@ -95,6 +102,17 @@ def parse_box(text: str) -> Box:
     if w <= 0 or h <= 0 or x < 0 or y < 0:
         raise argparse.ArgumentTypeError("X,Y must be >= 0 and W,H > 0")
     return Box(x, y, w, h)
+
+
+def parse_minutes(text: str) -> tuple[float, float]:
+    """'45-60' (minutes) -> (2700.0, 3600.0) seconds"""
+    try:
+        lo, hi = (float(v) * 60 for v in text.split("-"))
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected MIN-MAX in minutes, e.g. 45-60") from None
+    if not 0 < lo <= hi:
+        raise argparse.ArgumentTypeError("expected 0 < MIN <= MAX")
+    return lo, hi
 
 
 def check_ffmpeg() -> None:

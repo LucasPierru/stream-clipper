@@ -12,7 +12,9 @@ from . import twitch
 from .config import CACHE_DIR
 from .detect import audio_score, chat_score, loudness_per_second, pick
 from .models import Highlight, Source
+from .music import remove_music
 from .output import clip_name, make_output_dir, write_report
+from .parts import plan_parts, write_parts, write_parts_report
 from .facecam import Box, cam_visible, find_facecam, video_size
 from .render import cut, load_whisper, transcribe, video_filter, write_srt
 from .source import find_stream_vod, link_recording, probe_duration, resolve_source
@@ -34,24 +36,44 @@ def process(args) -> None:
     duration = probe_duration(src.path)
     log(f"source: {src.title}  ({hms(duration)}, stream date {src.date})")
 
+    music = []
+    if args.remove_music:
+        if args.dry_run:
+            log("dry run: music not removed (highlights are found on the original audio)")
+        else:
+            src.audio, music = remove_music(src.path, src.key, duration)
+
     highlights = find_highlights(src, duration, args)
-    if not highlights:
-        log("nothing to cut")
-        return
     for i, h in enumerate(highlights, 1):
         log(f"  #{i:02d}  {hms(h.peak)}  score {h.score:5.1f}  {', '.join(h.reasons)}")
+    parts = []
+    if args.parts:
+        parts = plan_parts(src, duration, loudness(src), highlights, *args.part_length)
+        for p in parts:
+            log(f"  part {p.index:02d}  {hms(p.start)} - {hms(p.end)}  ({hms(p.end - p.start)})  {p.why}")
+    if not highlights and not parts:
+        log("nothing to cut")
+        return
     if args.dry_run:
         return
 
     out_dir = make_output_dir(args.out, src.date, src.key)
-    log(f"writing {len(highlights)} clips to {out_dir}")
-    render_clips(src, highlights, out_dir, args)
-    write_report(out_dir, src, highlights)
+    if highlights:
+        log(f"writing {len(highlights)} clips to {out_dir}")
+        render_clips(src, highlights, out_dir, args)
+        write_report(out_dir, src, highlights, music)
+    else:
+        log("no highlights found")
+    if parts:
+        write_parts(src, parts, out_dir / "parts")
+        write_parts_report(src, parts, out_dir / "parts")
 
     if src.downloaded and not args.keep_vod:
         src.path.unlink(missing_ok=True)
+        if src.audio:
+            src.audio.unlink(missing_ok=True)
         log("deleted downloaded VOD")
-    log(f"done -> {out_dir}  (see highlights.md)")
+    log(f"done -> {out_dir}  (see {'highlights.md' if highlights else 'parts/parts.md'})")
 
 
 def ended_stream_args(args):
@@ -75,8 +97,15 @@ def ended_stream_args(args):
     return run_args
 
 
+def loudness(src: Source) -> np.ndarray:
+    """Per-second loudness of the audio in use (the music-free track if there is one)."""
+    if src.audio:
+        return loudness_per_second(src.audio, CACHE_DIR / f"{src.key}_nomusic_loudness.npy")
+    return loudness_per_second(src.path, CACHE_DIR / f"{src.key}_loudness.npy")
+
+
 def find_highlights(src: Source, duration: float, args) -> list[Highlight]:
-    db = loudness_per_second(src.path, CACHE_DIR / f"{src.key}_loudness.npy")
+    db = loudness(src)
     parts: dict[str, np.ndarray] = {"loud moment": args.audio_weight * audio_score(db)}
     if args.chat:
         c = chat_score(src, len(db), args)
@@ -101,17 +130,17 @@ def render_clips(src: Source, highlights: list[Highlight], out_dir: Path, args) 
             out = out_dir / f"{name}.mp4"
             srt = None
             if model:
-                words = transcribe(model, src.path, h, args.lang, Path(tmp))
+                words = transcribe(model, src.audio or src.path, h, args.lang, Path(tmp))
                 if words:
                     h.caption = write_srt(words, out_dir / f"{name}.srt")
                     srt = f"{name}.srt"
             log(f"cutting {out.name}  ({layout})")
-            cut(src.path, h, out, args, video_filter(layout, src_w, src_h, cam, srt))
+            cut(src.path, h, out, args, video_filter(layout, src_w, src_h, cam, srt), src.audio)
             h.file = out.name
             if args.format == "both":
                 wide = out_dir / f"{name}_horizontal.mp4"
                 log(f"cutting {wide.name}  (horizontal)")
-                cut(src.path, h, wide, args, video_filter("horizontal", src_w, src_h, None, srt))
+                cut(src.path, h, wide, args, video_filter("horizontal", src_w, src_h, None, srt), src.audio)
                 h.horizontal_file = wide.name
 
 

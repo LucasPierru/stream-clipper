@@ -73,6 +73,18 @@ AUDIO_SR = 8000         # analysis sample rate; plenty for loudness
 SILENCE_DB = -50        # quieter seconds never count as highlights
 HYPE_WORDS = ("lul", "lol", "lmao", "pog", "kekw", "omg", "wtf", "clip", "no way", "holy", "gg")
 
+# --remove-music: per-second "Music" probability from the AudioSet classifier
+MUSIC_ON = 0.35         # a music stretch starts above this...
+MUSIC_OFF = 0.20        # ...and lasts while it stays above this
+MUSIC_MIN = 8           # seconds; shorter music blips are left alone
+MUSIC_GAP = 10          # seconds; music stretches closer than this are merged
+MUSIC_PAD = 2           # seconds added on both sides of a stretch
+
+# --parts: the whole VOD in long parts for YouTube, cut at natural moments
+PART_MIN = 45 * 60      # seconds; a part is between these two lengths...
+PART_MAX = 60 * 60      # ...except the last one, which can be up to PART_MAX + PART_MIN / 3
+DARK_LEVEL = 28         # a keyframe this dark on average (0-255), and flat, is a black/loading screen
+
 # libass style for burned-in captions (sizes are relative to a 288px-tall canvas)
 CAPTION_STYLE = ("FontName=Arial,Fontsize=13,Bold=1,PrimaryColour=&H00FFFFFF,"
                  "OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,"
