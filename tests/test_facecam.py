@@ -200,3 +200,9 @@ def test_cam_visible_when_the_room_looks_different(monkeypatch, usual_cam):
 
 def test_cam_not_visible_in_a_full_screen_scene(monkeypatch, usual_cam):
     assert not visible(monkeypatch, usual_cam, gameplay(3, 360, 640, seed=3))
+
+
+@pytest.mark.parametrize("out", ["1920,1080\n", "1920,1080\n\n1920,1080\n", "1920,1080,\r\n\r\n1920,1080,\r\n"])
+def test_video_size_reads_first_line(monkeypatch, out):
+    monkeypatch.setattr(facecam, "run", lambda *a, **k: out)
+    assert facecam.video_size("x.mp4") == (1920, 1080)

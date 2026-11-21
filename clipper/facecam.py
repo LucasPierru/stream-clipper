@@ -62,7 +62,8 @@ class Facecam:
 def video_size(path: Path) -> tuple[int, int]:
     out = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                "stream=width,height", "-of", "csv=p=0", str(path)])
-    w, h = out.strip().split(",")[:2]
+    # Some ffprobe builds print the stream more than once, so read only the first line.
+    w, h = out.split()[0].split(",")[:2]
     return int(w), int(h)
 
 
