@@ -451,8 +451,17 @@ def write_clean_track(path: Path, spans: list[tuple[float, float]], out: Path,
             finish(ranges[st["k"]][0], st["h0"] + len(st["held"]))
         enc.stdin.close()
     except BaseException:
-        enc.kill()                     # don't wait on an encoder whose input never ends
-        enc.wait()
+        # End its input instead of only killing it: on Windows `ffmpeg` can be a launcher
+        # (Chocolatey shim), and killing that leaves the real ffmpeg waiting, file open.
+        try:
+            enc.stdin.close()
+        except OSError:                # it already exited: nothing left to flush to
+            pass
+        try:
+            enc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            enc.kill()
+            enc.wait()
         tmp.unlink(missing_ok=True)
         raise
     if enc.wait() != 0:
